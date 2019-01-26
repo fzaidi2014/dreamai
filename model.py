@@ -175,17 +175,20 @@ class Network(nn.Module):
                 
      
                 
-    def set_criterion(self,criterion_name):
-            if criterion_name.lower() == 'nllloss':
+    def set_criterion(self,criterion_):
+        if isinstance(criterion_,str):
+            if criterion_.lower() == 'nllloss':
                 self.criterion_name = 'NLLLoss'
                 self.criterion = nn.NLLLoss()
-            elif criterion_name.lower() == 'crossentropyloss':
+            elif criterion_.lower() == 'crossentropyloss':
                 self.criterion_name = 'CrossEntropyLoss'
                 self.criterion = nn.CrossEntropyLoss()
-            elif criterion_name.lower() == 'mseloss':
+            elif criterion_.lower() == 'mseloss':
                 self.criterion_name = 'MSELoss'
                 self.criterion = nn.MSELoss()
-
+        else:
+            self.criterion_name = str(criterion_)[:-2]
+            self.criterion = criterion_
 
     def set_optimizer(self,params,optimizer_name='adam',lr=0.003):
         from torch import optim

@@ -210,4 +210,22 @@ class TransferNetworkImg(Network):
                 self.model.fc._set_dropout(p=p)
         
 
+# class FacialRec(TransferNetworkImg):
+#     def __init__(self,
+#                  model_name='DenseNet',
+#                  model_type='cv_transfer',
+#                  lr=0.003,
+#                  criterion_name ='NLLLoss',
+#                  optimizer_name = 'Adam',
+#                  dropout_p=0.2,
+#                  pretrained=True,
+#                  device=None,
+#                  best_accuracy=0.,
+#                  best_validation_loss=None,
+#                  best_model_file ='best_model.pth',
+#                  chkpoint_file ='chkpoint_file',
+#                  head={}):
+
+        
+#         super().__init__(device=device)
 
