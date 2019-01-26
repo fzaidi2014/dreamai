@@ -3,7 +3,14 @@ import math
 import torch
 from torch.utils.data.sampler import SubsetRandomSampler,SequentialSampler,BatchSampler
 import numpy as np
+from torch import nn
 
+
+class Flatten(nn.Module):
+    def forward(self, input):
+        return input.view(input.size(0), -1)
+
+DAI_AvgPool = nn.AdaptiveAvgPool2d(1)
 
 
 def update_classwise_accuracies(preds,labels,class_correct,class_totals):

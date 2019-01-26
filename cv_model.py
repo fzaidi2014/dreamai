@@ -21,23 +21,26 @@ class TransferNetworkImg(Network):
                  best_accuracy=0.,
                  best_validation_loss=None,
                  best_model_file ='best_model.pth',
-                 chkpoint_file ='chkpoint_file',
-                 head={}):
+                 chkpoint_file ='chkpoint_file.pth',
+                 head = {'num_outputs':10,
+                    'layers':[],
+                    'class_names':{},
+                    'model_type':'classifier'
+                }):
 
         
         super().__init__(device=device)
         
         self.set_transfer_model(model_name,pretrained=pretrained)    
         
-        if head is not None:
-            self.set_model_head(model_name = model_name,
-                                 head = head,
-                                 optimizer_name = optimizer_name,
-                                 criterion_name = criterion_name,
-                                 lr = lr,
-                                 dropout_p = dropout_p,
-                                 device = device
-                                )
+        self.set_model_head(model_name = model_name,
+                head = head,
+                optimizer_name = optimizer_name,
+                criterion_name = criterion_name,
+                lr = lr,
+                dropout_p = dropout_p,
+                device = device
+            )
             
         self.set_model_params(criterion_name,
                               optimizer_name,
@@ -79,13 +82,17 @@ class TransferNetworkImg(Network):
                                               chkpoint_file
                                               )
 
-        self.head = head
+        # self.head = head
         self.num_outputs = head['num_outputs']
 
         if 'class_names' in head.keys():
-            self.class_names = head['class_names']
+            if len(head['class_names']) > 0:
+                self.class_names = head['class_names']
+            else:
+                self.class_names = np.arange(head['num_outputs'])        
         else:
-            self.class_names = {k:str(v) for k,v in enumerate(list(range(head['num_outputs'])))}
+            # self.class_names = {k:str(v) for k,v in enumerate(list(range(head['num_outputs'])))}
+            self.class_names = np.arange(head['num_outputs'])
         
         self.to(self.device)
 
@@ -103,111 +110,160 @@ class TransferNetworkImg(Network):
     def freeze(self,train_classifier=True):
         super(TransferNetworkImg, self).freeze()
         if train_classifier:
-            if self.model_name.lower() == 'densenet':
-                for param in self.model.classifier.parameters():
-                    param.requires_grad = True
-            elif self.model_name.lower() == 'resnet34':
-                for param in self.model.fc.parameters():
-                    param.requires_grad = True
+            for param in self.model.fc.parameters():
+                 param.requires_grad = True
+
+            # if self.model_name.lower() == 'densenet':
+            #     for param in self.model.classifier.parameters():
+            #         param.requires_grad = True
+            # elif self.model_name.lower() == 'resnet34':
+            #     for param in self.model.fc.parameters():
+            #         param.requires_grad = True
             
                 
     def set_transfer_model(self,mname,pretrained=True):   
         self.model = None
-        if mname.lower() == 'densenet':
-            self.model = models.densenet121(pretrained=pretrained)
-            
-        elif mname.lower() == 'resnet34':
-            self.model = models.resnet34(pretrained=pretrained)
+        models_dict = {
 
-        elif mname.lower() == 'resnet50':
-            self.model = models.resnet50(pretrained=pretrained)
+            'densnet': models.densenet121(pretrained=pretrained),
+            'resnet34': models.resnet34(pretrained=pretrained),
+            'resnet50': models.resnet50(pretrained=pretrained),
 
-        if self.model is not None:
+        }
+        try:
+            self.model = models_dict[mname.lower()]
             print('set_transfer_model: self.Model set to {}'.format(mname))
-        else:
-            print('set_transfer_model:Model {} not supported'.format(mname))
+        except:
+            print('set_transfer_model: Model {} not supported'.format(mname))
             
            
     def set_model_head(self,
                         model_name = 'DenseNet',
-                        head = {'num_inputs':128,
-                                'num_outputs':10,
+                        head = {'num_outputs':10,
                                 'layers':[],
-                                'class_names':{}
+                                'class_names': {},
+                                'model_type':'classifier'
                                },
-                         optimizer_name = 'Adam',
-                         criterion_name = 'NLLLoss',
-                         lr = 0.003,
-                         dropout_p = 0.2,
-                         device = None):
-        
-        
-        if model_name.lower() == 'densenet':
-            if hasattr(self.model,'classifier'):
-                in_features =  self.model.classifier.in_features
-            else:
-                in_features = self.model.classifier.num_inputs
-            self.model.classifier = FC(num_inputs=in_features,
-                                       num_outputs=head['num_outputs'],
-                                       layers = head['layers'],
-                                       class_names = head['class_names'],
-                                       non_linearity = head['non_linearity'],
-                                       model_type = head['model_type'],
-                                       model_name = head['model_name'],
-                                       dropout_p = dropout_p,
-                                       optimizer_name = optimizer_name,
-                                       lr = lr,
-                                       criterion_name = criterion_name,
-                                       device=device
-                                      )
-            
-        elif model_name.lower() == 'resnet50' or model_name.lower() == 'resnet34':
-            if hasattr(self.model,'fc'):
-                in_features =  self.model.fc.in_features
-            else:
-                in_features = self.model.fc.num_inputs
+                        adaptive = True,       
+                        optimizer_name = 'Adam',
+                        criterion_name = 'NLLLoss',
+                        lr = 0.003,
+                        dropout_p = 0.2,
+                        device = None):
 
-            self.model.fc = FC(num_inputs=in_features,
-                               num_outputs=head['num_outputs'],
-                               layers = head['layers'],
-                               class_names = head['class_names'],
-                               non_linearity = head['non_linearity'],
-                               model_name = head['model_name'],
-                               model_type = head['model_type'],
-                               dropout_p = dropout_p,
-                               optimizer_name = optimizer_name,
-                               lr = lr,
-                               criterion_name = criterion_name,
-                               device=device
-                              )
-         
+        # models_meta = {
+        # 'resnet': {'head_id': -2, 'adaptive_head': [DAI_AvgPool,Flatten()],'normal_head': [nn.AvgPool2d(7,1),Flatten()]},
+        # 'densenet': {'head_id': -1,'adaptive_head': [nn.ReLU(inplace=True),DAI_AvgPool,Flatten()]
+        #             ,'normal_head': [nn.ReLU(inplace=True),nn.AvgPool2d(7,1),Flatten()]}
+        # }
+
+        models_meta = {
+        'resnet': {'head_id': -2, 'adaptive_head': [DAI_AvgPool],'normal_head': [nn.AvgPool2d(7,1)]},
+        'densenet': {'head_id': -1,'adaptive_head': [nn.ReLU(inplace=True),DAI_AvgPool]
+                    ,'normal_head': [nn.ReLU(inplace=True),nn.AvgPool2d(7,1)]}
+        }
+
+        name = ''.join([x for x in model_name.lower() if x.isalpha()])
+        meta = models_meta[name.lower()]
+        modules = list(self.model.modules())
+        l = modules[:meta['head_id']]
+        fc = modules[-1]
+        in_features =  fc.in_features
+        fc = FC(num_inputs = in_features,
+                num_outputs = head['num_outputs'],
+                layers = head['layers'],
+                class_names = head['class_names'],
+                model_type = head['model_type'],
+                dropout_p = dropout_p,
+                optimizer_name = optimizer_name,
+                lr = lr,
+                criterion_name = criterion_name,
+                device = device
+                )
+        if adaptive:
+            l += meta['adaptive_head']
+        else:
+            l += meta['normal_head']
+        model = nn.Sequential(*l)
+        model.add_module('fc',fc)
+        self.model = model
         self.head = head
         
         print('{}: setting head: inputs: {} hidden:{} outputs: {}'.format(model_name,
                                                                           in_features,
                                                                           head['layers'],
                                                                           head['num_outputs']))
+
+        # if model_name.lower() == 'densenet':
+        #     if hasattr(self.model,'classifier'):
+        #         in_features =  self.model.classifier.in_features
+        #     else:
+        #         in_features = self.model.classifier.num_inputs
+        #     self.model.classifier = FC(num_inputs=in_features,
+        #                                num_outputs=head['num_outputs'],
+        #                                layers = head['layers'],
+        #                                class_names = head['class_names'],
+        #                                non_linearity = head['non_linearity'],
+        #                                model_type = head['model_type'],
+        #                                model_name = head['model_name'],
+        #                                dropout_p = dropout_p,
+        #                                optimizer_name = optimizer_name,
+        #                                lr = lr,
+        #                                criterion_name = criterion_name,
+        #                                device=device
+        #                               )
+            
+        # elif model_name.lower() == 'resnet50' or model_name.lower() == 'resnet34':
+        #     if hasattr(self.model,'fc'):
+        #         in_features =  self.model.fc.in_features
+        #     else:
+        #         in_features = self.model.fc.num_inputs
+
+        #     self.model.fc = FC(num_inputs=in_features,
+        #                        num_outputs=head['num_outputs'],
+        #                        layers = head['layers'],
+        #                        class_names = head['class_names'],
+        #                        non_linearity = head['non_linearity'],
+        #                        model_name = head['model_name'],
+        #                        model_type = head['model_type'],
+        #                        dropout_p = dropout_p,
+        #                        optimizer_name = optimizer_name,
+        #                        lr = lr,
+        #                        criterion_name = criterion_name,
+        #                        device=device
+        #                       )
+         
+        # self.head = head
+        
+        # print('{}: setting head: inputs: {} hidden:{} outputs: {}'.format(model_name,
+        #                                                                   in_features,
+        #                                                                   head['layers'],
+        #                                                                   head['num_outputs']))
         
     
     def _get_dropout(self):
-        if self.model_name.lower() == 'densenet':
-            return self.model.classifier._get_dropout()
+        # if self.model_name.lower() == 'densenet':
+        #     return self.model.classifier._get_dropout()
         
-        elif self.model_name.lower() == 'resnet50' or self.model_name.lower() == 'resnet34':
-            return self.model.fc._get_dropout()
+        # elif self.model_name.lower() == 'resnet50' or self.model_name.lower() == 'resnet34':
+        return self.model.fc._get_dropout()
         
             
     def _set_dropout(self,p=0.2):
         
-        if self.model_name.lower() == 'densenet':
-            if self.model.classifier is not None:
-                print('DenseNet: setting head (FC) dropout prob to {:.3f}'.format(p))
-                self.model.classifier._set_dropout(p=p)
-                
-        elif self.model_name.lower() == 'resnet50' or self.model_name.lower() == 'resnet34':
-            if self.model.fc is not None:
-                print('ResNet: setting head (FC) dropout prob to {:.3f}'.format(p))
+        if self.model.classifier is not None:
+                print('{}: setting head (FC) dropout prob to {:.3f}'.format(self.model_name,p))
                 self.model.fc._set_dropout(p=p)
+
+        # if self.model_name.lower() == 'densenet':
+        #     if self.model.classifier is not None:
+        #         print('DenseNet: setting head (FC) dropout prob to {:.3f}'.format(p))
+        #         self.model.classifier._set_dropout(p=p)
+                
+        # elif self.model_name.lower() == 'resnet50' or self.model_name.lower() == 'resnet34':
+        #     if self.model.fc is not None:
+        #         print('ResNet: setting head (FC) dropout prob to {:.3f}'.format(p))
+        #         self.model.fc._set_dropout(p=p)
         
 
 # class FacialRec(TransferNetworkImg):
@@ -224,7 +280,11 @@ class TransferNetworkImg(Network):
 #                  best_validation_loss=None,
 #                  best_model_file ='best_model.pth',
 #                  chkpoint_file ='chkpoint_file',
-#                  head={}):
+#                  head = {'num_inputs':128,
+#                         'num_outputs':32,
+#                         'layers':[],
+#                         'class_names':{}
+#                     }):
 
         
 #         super().__init__(device=device)

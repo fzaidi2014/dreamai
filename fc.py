@@ -63,9 +63,6 @@ class FC(Network):
         self.to(self.device)
         self.model.to(self.device)
         
-
-        
-        
         self.set_model_params(criterion_name,
                               optimizer_name,
                               lr,
