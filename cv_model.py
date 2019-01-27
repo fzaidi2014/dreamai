@@ -13,7 +13,7 @@ class TransferNetworkImg(Network):
                  model_name='DenseNet',
                  model_type='cv_transfer',
                  lr=0.003,
-                 criterion_name ='NLLLoss',
+                 criterion = nn.NLLLoss(),
                  optimizer_name = 'Adam',
                  dropout_p=0.2,
                  pretrained=True,
@@ -24,25 +24,21 @@ class TransferNetworkImg(Network):
                  chkpoint_file ='chkpoint_file.pth',
                  head = {'num_outputs':10,
                     'layers':[],
-                    'class_names':{},
                     'model_type':'classifier'
                 }):
 
         
         super().__init__(device=device)
         
-        self.set_transfer_model(model_name,pretrained=pretrained)    
+        self.set_transfer_model(model_name,pretrained=pretrained)  
         
         self.set_model_head(model_name = model_name,
                 head = head,
-                optimizer_name = optimizer_name,
-                criterion_name = criterion_name,
-                lr = lr,
                 dropout_p = dropout_p,
                 device = device
             )
             
-        self.set_model_params(criterion_name,
+        self.set_model_params(criterion,
                               optimizer_name,
                               lr,
                               dropout_p,
@@ -55,7 +51,7 @@ class TransferNetworkImg(Network):
                               head)
             
         
-    def set_model_params(self,criterion_name,
+    def set_model_params(self,criterion,
                          optimizer_name,
                          lr,
                          dropout_p,
@@ -70,7 +66,7 @@ class TransferNetworkImg(Network):
         print('Transfer: best accuracy = {:.3f}'.format(best_accuracy))
         
         super(TransferNetworkImg, self).set_model_params(
-                                              criterion_name,
+                                              criterion,
                                               optimizer_name,
                                               lr,
                                               dropout_p,
@@ -84,19 +80,12 @@ class TransferNetworkImg(Network):
 
         # self.head = head
         self.num_outputs = head['num_outputs']
-
+        self.class_names = np.arange(head['num_outputs'])
         if 'class_names' in head.keys():
-            if len(head['class_names']) > 0:
-                self.class_names = head['class_names']
-            else:
-                self.class_names = np.arange(head['num_outputs'])        
-        else:
-            # self.class_names = {k:str(v) for k,v in enumerate(list(range(head['num_outputs'])))}
-            self.class_names = np.arange(head['num_outputs'])
-        
+            if head['class_names'] is not None:
+                if len(head['class_names']) > 0:
+                    self.class_names = head['class_names']       
         self.to(self.device)
-
-        
 
     def forward(self,x):
         return self.model(x)
@@ -125,29 +114,29 @@ class TransferNetworkImg(Network):
         self.model = None
         models_dict = {
 
-            'densnet': models.densenet121(pretrained=pretrained),
+            'densenet': models.densenet121(pretrained=pretrained),
             'resnet34': models.resnet34(pretrained=pretrained),
             'resnet50': models.resnet50(pretrained=pretrained),
 
         }
         try:
-            self.model = models_dict[mname.lower()]
+            # self.model = nn.Sequential(*list(models_dict[mname.lower()].modules()))
+            model = models_dict[mname.lower()]
+            for param in model.parameters():
+                param.requires_grad = False
+            self.model = model    
             print('set_transfer_model: self.Model set to {}'.format(mname))
         except:
-            print('set_transfer_model: Model {} not supported'.format(mname))
-            
+            print('set_transfer_model: Model {} not supported'.format(mname))            
            
     def set_model_head(self,
                         model_name = 'DenseNet',
                         head = {'num_outputs':10,
                                 'layers':[],
-                                'class_names': {},
+                                'class_names': None,
                                 'model_type':'classifier'
                                },
                         adaptive = True,       
-                        optimizer_name = 'Adam',
-                        criterion_name = 'NLLLoss',
-                        lr = 0.003,
                         dropout_p = 0.2,
                         device = None):
 
@@ -165,19 +154,18 @@ class TransferNetworkImg(Network):
 
         name = ''.join([x for x in model_name.lower() if x.isalpha()])
         meta = models_meta[name.lower()]
-        modules = list(self.model.modules())
+        modules = list(self.model.children())
         l = modules[:meta['head_id']]
         fc = modules[-1]
         in_features =  fc.in_features
-        fc = FC(num_inputs = in_features,
+        fc = FC(
+                num_inputs = in_features,
                 num_outputs = head['num_outputs'],
                 layers = head['layers'],
-                class_names = head['class_names'],
                 model_type = head['model_type'],
                 dropout_p = dropout_p,
-                optimizer_name = optimizer_name,
-                lr = lr,
-                criterion_name = criterion_name,
+                criterion = None,
+                optimizer_name = None,
                 device = device
                 )
         if adaptive:
@@ -266,26 +254,51 @@ class TransferNetworkImg(Network):
         #         self.model.fc._set_dropout(p=p)
         
 
-# class FacialRec(TransferNetworkImg):
-#     def __init__(self,
-#                  model_name='DenseNet',
-#                  model_type='cv_transfer',
-#                  lr=0.003,
-#                  criterion_name ='NLLLoss',
-#                  optimizer_name = 'Adam',
-#                  dropout_p=0.2,
-#                  pretrained=True,
-#                  device=None,
-#                  best_accuracy=0.,
-#                  best_validation_loss=None,
-#                  best_model_file ='best_model.pth',
-#                  chkpoint_file ='chkpoint_file',
-#                  head = {'num_inputs':128,
-#                         'num_outputs':32,
-#                         'layers':[],
-#                         'class_names':{}
-#                     }):
+class FacialRec(TransferNetworkImg):
+    def __init__(self,
+                 model_name='DenseNet',
+                 model_type='cv_transfer',
+                 lr=0.003,
+                 criterion= nn.NLLLoss(),
+                 optimizer_name = 'Adam',
+                 dropout_p=0.2,
+                 pretrained=True,
+                 device=None,
+                 best_accuracy=0.,
+                 best_validation_loss=None,
+                 best_model_file ='best_model.pth',
+                 chkpoint_file ='chkpoint_file.pth',
+                 head = {'num_outputs':10,
+                    'layers':[],
+                    'model_type':'classifier'
+                }):
+        super().__init__(model_name = model_name,
+                 model_type = model_type,
+                 lr = lr,
+                 criterion = criterion,
+                 optimizer_name = optimizer_name,
+                 dropout_p = dropout_p,
+                 pretrained = pretrained,
+                 device = device,
+                 best_accuracy = best_accuracy,
+                 best_validation_loss = best_validation_loss, 
+                 best_model_file = best_model_file,
+                 chkpoint_file = chkpoint_file,
+                 head = head)
 
-        
-#         super().__init__(device=device)
+    def forward_once(self, x):
+        return self.model(x)
+
+    def forward(self, x):
+        # s = x.size()
+        # x1 = torch.ones((s[0],s[2],s[3],s[4]))
+        # x2 = torch.ones((s[0],s[2],s[3],s[4]))
+        # for i,a in enumerate(x):
+        #     x1[i] = a[0]
+        #     x2[i] = a[1]
+        input1,input2 = x[:,0,:,:],x[:,1,:,:]
+        output1 = self.forward_once(input1)
+        output2 = self.forward_once(input2)
+        return (output1, output2)
+
 

@@ -78,7 +78,7 @@ class Network(nn.Module):
         running_loss = 0.
         classifier = None
 
-        if self.model_type == 'classifier' or self.num_classes is not None:
+        if self.model_type == 'classifier':# or self.num_classes is not None:
            classifier = Classifier(self.class_names)
 
         self.eval()
@@ -93,9 +93,6 @@ class Network(nn.Module):
                      classifier.update_accuracies(outputs,labels)
                 elif metric == 'rmse':
                     rmse_ += rmse(outputs,labels).cpu().numpy()
-                
-
-
             
         self.train()
 
@@ -149,7 +146,7 @@ class Network(nn.Module):
                       f"Epoch Training loss: {epoch_train_loss:.3f}.. "
                       f"Epoch validation loss: {epoch_validation_loss:.3f}.. ")
 
-                if self.model_type == 'classifier' or self.num_classes is not None:
+                if self.model_type == 'classifier':# or self.num_classes is not None:
                     epoch_accuracy = eval_dict['accuracy']
                     print("validation accuracy: {:.3f}".format(epoch_accuracy))
                                
@@ -175,37 +172,44 @@ class Network(nn.Module):
                 
      
                 
-    def set_criterion(self,criterion_):
-        if isinstance(criterion_,str):
-            if criterion_.lower() == 'nllloss':
-                self.criterion_name = 'NLLLoss'
-                self.criterion = nn.NLLLoss()
-            elif criterion_.lower() == 'crossentropyloss':
-                self.criterion_name = 'CrossEntropyLoss'
-                self.criterion = nn.CrossEntropyLoss()
-            elif criterion_.lower() == 'mseloss':
-                self.criterion_name = 'MSELoss'
-                self.criterion = nn.MSELoss()
-        else:
-            self.criterion_name = str(criterion_)[:-2]
-            self.criterion = criterion_
+    def set_criterion(self, criterion):
+
+        if criterion:
+            self.criterion = criterion
+
+        # if criterion_obj is None:        
+        #     if criterion_name.lower() == 'nllloss':
+        #         self.criterion_name = 'NLLLoss'
+        #         self.criterion = nn.NLLLoss()
+        #     elif criterion_name.lower() == 'crossentropyloss':
+        #         self.criterion_name = 'CrossEntropyLoss'
+        #         self.criterion = nn.CrossEntropyLoss()
+        #     elif criterion_name.lower() == 'mseloss':
+        #         self.criterion_name = 'MSELoss'
+        #         self.criterion = nn.MSELoss()
+        # else:
+        #     print(str(criterion_)[:-2])
+        #     print(self.criterion_name)
+        #     self.criterion_name = criterion_obj.__class__.__name__
+        #     self.criterion = criterion_obj
+        
 
     def set_optimizer(self,params,optimizer_name='adam',lr=0.003):
         from torch import optim
-
-        if optimizer_name.lower() == 'adam':
-            print('setting optim Adam')
-            self.optimizer = optim.Adam(params,lr=lr)
-            self.optimizer_name = optimizer_name
-        elif optimizer_name.lower() == 'sgd':
-            print('setting optim SGD')
-            self.optimizer = optim.SGD(params,lr=lr)
-        elif optimizer_name.lower() == 'adadelta':
-            print('setting optim Ada Delta')
-            self.optimizer = optim.Adadelta(params)
+        if optimizer_name:
+            if optimizer_name.lower() == 'adam':
+                print('setting optim Adam')
+                self.optimizer = optim.Adam(params,lr=lr)
+                self.optimizer_name = optimizer_name
+            elif optimizer_name.lower() == 'sgd':
+                print('setting optim SGD')
+                self.optimizer = optim.SGD(params,lr=lr)
+            elif optimizer_name.lower() == 'adadelta':
+                print('setting optim Ada Delta')
+                self.optimizer = optim.Adadelta(params)       
             
     def set_model_params(self,
-                         criterion_name,
+                         criterion,
                          optimizer_name,
                          lr,
                          dropout_p,
@@ -216,8 +220,7 @@ class Network(nn.Module):
                          best_model_file,
                          chkpoint_file):
         
-        self.criterion_name = criterion_name
-        self.set_criterion(criterion_name)
+        self.set_criterion(criterion)
         self.optimizer_name = optimizer_name
         self.set_optimizer(self.parameters(),optimizer_name,lr=lr)
         self.lr = lr
@@ -236,7 +239,7 @@ class Network(nn.Module):
         params['model_type'] = self.model_type
         params['model_name'] = self.model_name
         params['optimizer_name'] = self.optimizer_name
-        params['criterion_name'] = self.criterion_name
+        params['criterion'] = self.criterion
         params['lr'] = self.lr
         params['dropout_p'] = self.dropout_p
         params['best_accuracy'] = self.best_accuracy

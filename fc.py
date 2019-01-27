@@ -17,11 +17,11 @@ class FC(Network):
                  layers=[],
                  lr=0.003,
                  class_names=None,
-                 optimizer_name='Adam',
+                 optimizer_name='AdaDelta',
                  dropout_p=0.2,
                  hidden_non_linearity='relu',
                  output_non_linearity=None,
-                 criterion_name='NLLLoss',
+                 criterion=nn.NLLLoss(),
                  model_name='FC',
                  model_type ='classifier',
                  best_accuracy=0.,
@@ -52,7 +52,7 @@ class FC(Network):
             self.model.add_module('out',nn.Linear(num_inputs,num_outputs))
             
         
-        if model_type.lower() == 'classifier' and criterion_name.lower() == 'nllloss':
+        if model_type.lower() == 'classifier' and type(criterion).__name__.lower() == 'nllloss':
             self.model.add_module('logsoftmax',nn.LogSoftmax(dim=1))   
         elif (model_type.lower() == 'regressor' or model_type.lower() == 'recommender') and output_non_linearity is not None:
             print('output non linearity = {}'.format(output_non_linearity))
@@ -63,7 +63,7 @@ class FC(Network):
         self.to(self.device)
         self.model.to(self.device)
         
-        self.set_model_params(criterion_name,
+        self.set_model_params(criterion,
                               optimizer_name,
                               lr,
                               dropout_p,
@@ -92,7 +92,7 @@ class FC(Network):
                 layer.p=p
                 
     def set_model_params(self,
-                         criterion_name,
+                         criterion,
                          optimizer_name,
                          lr,
                          dropout_p,
@@ -109,7 +109,7 @@ class FC(Network):
         
         
         super(FC, self).set_model_params(
-                              criterion_name,
+                              criterion,
                               optimizer_name,
                               lr,
                               dropout_p,
