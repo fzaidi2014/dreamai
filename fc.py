@@ -51,11 +51,10 @@ class FC(Network):
         else:
             self.model.add_module('out',nn.Linear(num_inputs,num_outputs))
             
-        
         if model_type.lower() == 'classifier' and type(criterion).__name__.lower() == 'nllloss':
             self.model.add_module('logsoftmax',nn.LogSoftmax(dim=1))   
         elif (model_type.lower() == 'regressor' or model_type.lower() == 'recommender') and output_non_linearity is not None:
-            print('output non linearity = {}'.format(output_non_linearity))
+            print('Output non linearity = {}'.format(output_non_linearity))
             if output_non_linearity.lower() == 'sigmoid':
                 self.model.add_module(output_non_linearity,nn.Sigmoid())
                 self.output_non_linearity = output_non_linearity

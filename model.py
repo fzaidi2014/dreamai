@@ -63,11 +63,19 @@ class Network(nn.Module):
             running_loss += loss
             
             if batches % print_every == 0:
-                print(f"{time.asctime()}.."
-                        f"Time Elapsed = {time.time()-t0:.3f}.."
-                        f"Batch {batches+1}/{len(trainloader)}.. "
-                        f"Average Training loss: {running_loss/(batches):.3f}.. "
-                        f"Batch Training loss: {loss:.3f}.. "
+                elapsed = time.time()-t0
+                if elapsed > 60:
+                    elapsed /= 60.
+                    measure = 'min'
+                else:
+                    measure = 'sec'    
+                print('+----------------------------------------------------------------------+\n'
+                        f"{time.asctime().split()[-2]}\n"
+                        f"Time elapsed: {elapsed:.3f} {measure}\n"
+                        f"Batch: {batches+1}/{len(trainloader)}\n"
+                        f"Average training loss: {running_loss/(batches):.3f}\n"
+                        f"Batch training loss: {loss:.3f}\n"
+                      '+----------------------------------------------------------------------+\n'     
                         )
                 t0 = time.time()
            
@@ -97,8 +105,8 @@ class Network(nn.Module):
         self.train()
 
         ret = {}
-        print('running_loss = {:.3f}'.format(running_loss))
-        print('total rmse = {:.3f}'.format(rmse_))
+        print('Running_loss: {:.3f}'.format(running_loss))
+        print('Total rmse: {:.3f}'.format(rmse_))
         ret['final_loss'] = running_loss/len(dataloader)
 
         if classifier is not None:
@@ -131,7 +139,7 @@ class Network(nn.Module):
            
         for epoch in range(epochs):
             self.model.to(self.device)
-            print('epoch {:3d}/{}'.format(epoch+1,epochs))
+            print('Epoch:{:3d}/{}\n'.format(epoch+1,epochs))
             epoch_train_loss =  self.train_(trainloader,self.criterion,
                                             self.optimizer,print_every)
                     
@@ -141,36 +149,50 @@ class Network(nn.Module):
                 epoch_validation_loss = eval_dict['final_loss']
                 
                 time_elapsed = time.time() - t2
-                print(f"{time.asctime()}--Validation time {time_elapsed:.3f} seconds.."
-                      f"Epoch {epoch+1}/{epochs}.. "
-                      f"Epoch Training loss: {epoch_train_loss:.3f}.. "
-                      f"Epoch validation loss: {epoch_validation_loss:.3f}.. ")
+                if time_elapsed > 60:
+                    time_elapsed /= 60.
+                    measure = 'min'
+                else:
+                    measure = 'sec'    
+                print('\n'+'/'*36+'\\'*36+'\n'
+                        f"{time.asctime().split()[-2]}\n"
+                        f"Epoch {epoch+1}/{epochs}\n"
+                        f"Epoch training loss: {epoch_train_loss:.3f}\n"
+                        f"Epoch validation loss: {epoch_validation_loss:.3f}\n"
+                    )
+
+                # print(f"{time.asctime()}--Validation time {time_elapsed:.3f} seconds.."
+                #       f"Epoch {epoch+1}/{epochs}.. "
+                #       f"Epoch training loss: {epoch_train_loss:.3f}.. "
+                #       f"Epoch validation loss: {epoch_validation_loss:.3f}.. ")
 
                 if self.model_type == 'classifier':# or self.num_classes is not None:
                     epoch_accuracy = eval_dict['accuracy']
-                    print("validation accuracy: {:.3f}".format(epoch_accuracy))
-                               
+                    print("Validation accuracy: {:.3f}".format(epoch_accuracy))
+                    print('\n'+'\\'*36+'/'*36+'\n')
                     if self.best_accuracy == 0. or (epoch_accuracy > self.best_accuracy):
-                        print('updating best accuracy: previous best = {:.3f} new best = {:.3f}'.format(self.best_accuracy,
-                                                                                     epoch_accuracy))
+                        print('\n**********Updating best accuracy**********\n'
+                        'Previous best: {:.3f}\n'.format(self.best_accuracy),
+                        'New best: {:.3f}\n'.format(epoch_accuracy),
+                        '******************************************\n')
                         self.best_accuracy = epoch_accuracy
                         torch.save(self.state_dict(),self.best_model_file)
 
                 elif (self.model_type.lower() == 'regressor' or self.model_type.lower() == 'recommender') and (epoch % save_best_every == 0):
+                    print('\n'+'\\'*36+'/'*36+'\n')
                     if self.best_validation_loss == None or (epoch_validation_loss < self.best_validation_loss):
+                        print('\n**********Updating best validation loss**********\n')
                         if self.best_validation_loss is not None:
-                            print('updating best validation loss: previous best = {:.7f}'.format(self.best_validation_loss))
-                        print('New best loss = {:.7f}'.format(epoch_validation_loss))
-
+                            print('Previous best: {:.7f}'.format(self.best_validation_loss))
+                        print('New best loss = {:.7f}\n'.format(epoch_validation_loss))
+                        print('*'*49+'\n')
                         self.best_validation_loss = epoch_validation_loss
                         torch.save(self.state_dict(),self.best_model_file)
                     
                 self.train() # just in case we forgot to put the model back to train mode in validate
                 
-        print('loading best model')
+        print('\nLoading best model\n')
         self.load_state_dict(torch.load(self.best_model_file))
-                
-     
                 
     def set_criterion(self, criterion):
 
@@ -198,14 +220,14 @@ class Network(nn.Module):
         from torch import optim
         if optimizer_name:
             if optimizer_name.lower() == 'adam':
-                print('setting optim Adam')
+                print('Setting optim Adam')
                 self.optimizer = optim.Adam(params,lr=lr)
                 self.optimizer_name = optimizer_name
             elif optimizer_name.lower() == 'sgd':
-                print('setting optim SGD')
+                print('Setting optim SGD')
                 self.optimizer = optim.SGD(params,lr=lr)
             elif optimizer_name.lower() == 'adadelta':
-                print('setting optim Ada Delta')
+                print('Setting optim Ada Delta')
                 self.optimizer = optim.Adadelta(params)       
             
     def set_model_params(self,

@@ -125,9 +125,9 @@ class TransferNetworkImg(Network):
             for param in model.parameters():
                 param.requires_grad = False
             self.model = model    
-            print('set_transfer_model: self.Model set to {}'.format(mname))
+            print('Set_transfer_model: self.Model set to {}'.format(mname))
         except:
-            print('set_transfer_model: Model {} not supported'.format(mname))            
+            print('Set_transfer_model: Model {} not supported'.format(mname))            
            
     def set_model_head(self,
                         model_name = 'DenseNet',
@@ -163,6 +163,7 @@ class TransferNetworkImg(Network):
                 num_outputs = head['num_outputs'],
                 layers = head['layers'],
                 model_type = head['model_type'],
+                output_non_linearity = head['output_non_linearity'],
                 dropout_p = dropout_p,
                 criterion = None,
                 optimizer_name = None,
@@ -182,53 +183,6 @@ class TransferNetworkImg(Network):
                                                                           head['layers'],
                                                                           head['num_outputs']))
 
-        # if model_name.lower() == 'densenet':
-        #     if hasattr(self.model,'classifier'):
-        #         in_features =  self.model.classifier.in_features
-        #     else:
-        #         in_features = self.model.classifier.num_inputs
-        #     self.model.classifier = FC(num_inputs=in_features,
-        #                                num_outputs=head['num_outputs'],
-        #                                layers = head['layers'],
-        #                                class_names = head['class_names'],
-        #                                non_linearity = head['non_linearity'],
-        #                                model_type = head['model_type'],
-        #                                model_name = head['model_name'],
-        #                                dropout_p = dropout_p,
-        #                                optimizer_name = optimizer_name,
-        #                                lr = lr,
-        #                                criterion_name = criterion_name,
-        #                                device=device
-        #                               )
-            
-        # elif model_name.lower() == 'resnet50' or model_name.lower() == 'resnet34':
-        #     if hasattr(self.model,'fc'):
-        #         in_features =  self.model.fc.in_features
-        #     else:
-        #         in_features = self.model.fc.num_inputs
-
-        #     self.model.fc = FC(num_inputs=in_features,
-        #                        num_outputs=head['num_outputs'],
-        #                        layers = head['layers'],
-        #                        class_names = head['class_names'],
-        #                        non_linearity = head['non_linearity'],
-        #                        model_name = head['model_name'],
-        #                        model_type = head['model_type'],
-        #                        dropout_p = dropout_p,
-        #                        optimizer_name = optimizer_name,
-        #                        lr = lr,
-        #                        criterion_name = criterion_name,
-        #                        device=device
-        #                       )
-         
-        # self.head = head
-        
-        # print('{}: setting head: inputs: {} hidden:{} outputs: {}'.format(model_name,
-        #                                                                   in_features,
-        #                                                                   head['layers'],
-        #                                                                   head['num_outputs']))
-        
-    
     def _get_dropout(self):
         # if self.model_name.lower() == 'densenet':
         #     return self.model.classifier._get_dropout()
@@ -299,6 +253,8 @@ class FacialRec(TransferNetworkImg):
         input1,input2 = x[:,0,:,:],x[:,1,:,:]
         output1 = self.forward_once(input1)
         output2 = self.forward_once(input2)
-        return (output1, output2)
+        # return (output1, output2)
+        dist = F.pairwise_distance(output1,output2)
+        return torch.nn.functional.sigmoid(dist)
 
 
