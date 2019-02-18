@@ -154,11 +154,11 @@ class Network(nn.Module):
                     measure = 'min'
                 else:
                     measure = 'sec'    
-                print('\n'+'/'*36+'\\'*36+'\n'
+                print('\n'+'/'*36+'\n'
                         f"{time.asctime().split()[-2]}\n"
                         f"Epoch {epoch+1}/{epochs}\n"
                         f"Epoch training loss: {epoch_train_loss:.3f}\n"
-                        f"Epoch validation loss: {epoch_validation_loss:.3f}\n"
+                        f"Epoch validation loss: {epoch_validation_loss:.3f}"
                     )
 
                 # print(f"{time.asctime()}--Validation time {time_elapsed:.3f} seconds.."
@@ -169,17 +169,18 @@ class Network(nn.Module):
                 if self.model_type == 'classifier':# or self.num_classes is not None:
                     epoch_accuracy = eval_dict['accuracy']
                     print("Validation accuracy: {:.3f}".format(epoch_accuracy))
-                    print('\n'+'\\'*36+'/'*36+'\n')
+                    # print('\\'*36+'/'*36+'\n')
+                    print('\\'*36+'\n')
                     if self.best_accuracy == 0. or (epoch_accuracy > self.best_accuracy):
-                        print('\n**********Updating best accuracy**********\n'
-                        'Previous best: {:.3f}\n'.format(self.best_accuracy),
-                        'New best: {:.3f}\n'.format(epoch_accuracy),
-                        '******************************************\n')
+                        print('\n**********Updating best accuracy**********\n')
+                        print('Previous best: {:.3f}'.format(self.best_accuracy))
+                        print('New best: {:.3f}\n'.format(epoch_accuracy))
+                        print('******************************************\n')
                         self.best_accuracy = epoch_accuracy
                         torch.save(self.state_dict(),self.best_model_file)
 
                 elif (self.model_type.lower() == 'regressor' or self.model_type.lower() == 'recommender') and (epoch % save_best_every == 0):
-                    print('\n'+'\\'*36+'/'*36+'\n')
+                    print('\n'+'\\'*36+'\n')
                     if self.best_validation_loss == None or (epoch_validation_loss < self.best_validation_loss):
                         print('\n**********Updating best validation loss**********\n')
                         if self.best_validation_loss is not None:
