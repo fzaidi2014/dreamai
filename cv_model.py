@@ -13,6 +13,7 @@ class TransferNetworkImg(Network):
                  model_name='DenseNet',
                  model_type='cv_transfer',
                  lr=0.003,
+                 one_cycle_factor = 0.5,
                  criterion = nn.NLLLoss(),
                  optimizer_name = 'Adam',
                  dropout_p=0.2,
@@ -46,6 +47,7 @@ class TransferNetworkImg(Network):
             self.set_model_params(criterion,
                               optimizer_name,
                               lr,
+                              one_cycle_factor,
                               dropout_p,
                               model_name,
                               model_type,
@@ -59,6 +61,7 @@ class TransferNetworkImg(Network):
     def set_model_params(self,criterion,
                          optimizer_name,
                          lr,
+                         one_cycle_factor,
                          dropout_p,
                          model_name,
                          model_type,
@@ -74,6 +77,7 @@ class TransferNetworkImg(Network):
                                               criterion,
                                               optimizer_name,
                                               lr,
+                                              one_cycle_factor,
                                               dropout_p,
                                               model_name,
                                               model_type,
@@ -242,6 +246,7 @@ class FacialRec(TransferNetworkImg):
                  model_name='DenseNet',
                  model_type='cv_transfer',
                  lr=0.003,
+                 one_cycle_factor = 0.5,
                  criterion= nn.NLLLoss(),
                  optimizer_name = 'Adam',
                  dropout_p=0.2,
@@ -259,6 +264,7 @@ class FacialRec(TransferNetworkImg):
         super().__init__(model_name = model_name,
                  model_type = model_type,
                  lr = lr,
+                 one_cycle_factor = one_cycle_factor,
                  criterion = criterion,
                  optimizer_name = optimizer_name,
                  dropout_p = dropout_p,
@@ -293,6 +299,7 @@ class FacialRecCenterLoss(TransferNetworkImg):
                  model_name='DenseNet',
                  model_type='cv_transfer',
                  lr=0.003,
+                 one_cycle_factor = 0.5,
                  criterion= nn.NLLLoss(),
                  optimizer_name = 'AdaDelta',
                  dropout_p=0.2,
@@ -314,6 +321,7 @@ class FacialRecCenterLoss(TransferNetworkImg):
         super().__init__(model_name = model_name,
                  model_type = model_type,
                  lr = lr,
+                 one_cycle_factor = one_cycle_factor,
                  criterion = criterion,
                  optimizer_name = optimizer_name,
                  dropout_p = dropout_p,
@@ -335,6 +343,7 @@ class FacialRecCenterLoss(TransferNetworkImg):
                                               criterion,
                                               optimizer_name,
                                               lr,
+                                              one_cycle_factor,
                                               dropout_p,
                                               model_name,
                                               model_type,
@@ -372,11 +381,22 @@ class FacialRecCenterLoss(TransferNetworkImg):
         feature = l[-2](x)
         feature_normed = feature.div(torch.norm(feature, p=2, dim=1, keepdim=True).expand_as(feature))
         logits = l[-1](x)
-        return logits,feature_normed
+        return (logits,feature_normed)
 
-    def train_(self,trainloader,criterion,optimizer,print_every):
+    def compute_loss(self,criterion,outputs,labels):
+        centers = self.centers
+        out,features = outputs
+        classifier_loss = criterion(out, labels)
+        center_loss = compute_center_loss(features,centers,labels)
+        loss = self.lamda * center_loss + classifier_loss
+        return(loss,classifier_loss,center_loss)
+
+    def train_(self,e,trainloader,criterion,optimizer,print_every):
+
+        epoch,epochs = e
         self.train()
         t0 = time.time()
+        t1 = time.time()
         batches = 0
         running_loss = 0.
         running_classifier_loss = 0.
@@ -386,6 +406,9 @@ class FacialRecCenterLoss(TransferNetworkImg):
             inputs, labels = inputs.to(self.device), labels.to(self.device)
             centers = self.centers
             optimizer.zero_grad()
+            # outputs = self.forward(inputs)
+            # out,features = outputs
+            # loss,classifier_loss,center_loss = self.compute_loss(criterion,outputs,labels)
             outputs,features = self.forward(inputs)
             classifier_loss = criterion(outputs, labels)
             center_loss = compute_center_loss(features,centers,labels)
@@ -402,22 +425,30 @@ class FacialRecCenterLoss(TransferNetworkImg):
             running_center_loss += center_loss
             
             if batches % print_every == 0:
-                elapsed = time.time()-t0
+                elapsed = time.time()-t1
                 if elapsed > 60:
                     elapsed /= 60.
                     measure = 'min'
                 else:
-                    measure = 'sec'    
+                    measure = 'sec'
+                batch_time = time.time()-t0
+                if batch_time > 60:
+                    batch_time /= 60.
+                    measure2 = 'min'
+                else:
+                    measure2 = 'sec'   
                 print('+----------------------------------------------------------------------+\n'
                         f"{time.asctime().split()[-2]}\n"
-                        f"Time elapsed: {elapsed:.3f} {measure}\n"
+                        f"Time elapsed: {elapsed:.3f} {measure}\n"    
+                        f"Epoch:{epoch+1}/{epochs}\n"
                         f"Batch: {batches+1}/{len(trainloader)}\n"
-                        f"Average classifier loss: {running_classifier_loss/(batches):.3f}\n"
+                        f"Batch training time: {batch_time:.3f} {measure2}\n"
                         f"Batch classifier loss: {classifier_loss:.3f}\n"    
+                        f"Average classifier loss: {running_classifier_loss/(batches):.3f}\n"
+                        f"Batch center loss: {center_loss:.6f}\n"
                         f"Average center loss: {running_center_loss/(batches):.6f}\n"
-                        f"Batch center loss: {center_loss:.6f}\n"                                
-                        f"Average training loss: {running_loss/(batches):.6f}\n"
                         f"Batch training loss: {loss:.6f}\n"
+                        f"Average training loss: {running_loss/(batches):.6f}\n"
                       '+----------------------------------------------------------------------+\n'     
                         )
                 t0 = time.time()
@@ -442,7 +473,11 @@ class FacialRecCenterLoss(TransferNetworkImg):
             for inputs, labels in dataloader:
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
                 centers = self.centers
+                # outputs = self.forward(inputs)
+                # out,features = outputs
+                # loss,classifier_loss,center_loss = self.compute_loss(self.criterion,outputs,labels)
                 outputs, features = self.forward(inputs)
+                out = outputs
                 classifier_loss = self.criterion(outputs, labels)
                 center_loss = compute_center_loss(features,centers,labels)
                 loss = self.lamda * center_loss + classifier_loss
@@ -451,9 +486,9 @@ class FacialRecCenterLoss(TransferNetworkImg):
                 running_loss += loss.item()
 
                 if classifier is not None and metric == 'accuracy':
-                    classifier.update_accuracies(outputs,labels)
+                    classifier.update_accuracies(out,labels)
                 elif metric == 'rmse':
-                    rmse_ += rmse(outputs,labels).cpu().numpy()
+                    rmse_ += rmse(out,labels).cpu().numpy()
             
         self.train()
 

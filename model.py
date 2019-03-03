@@ -6,8 +6,10 @@ from torchvision import datasets, transforms, models
 import time
 from collections import defaultdict
 from dreamai.utils import *
+import matplotlib.pyplot as plt
 import numpy as np
-
+import math
+import copy
 
 class Classifier():
     def __init__(self,class_names):
@@ -43,10 +45,15 @@ class Network(nn.Module):
 
     def forward(self,x):
         pass
-    
-    def train_(self,trainloader,criterion,optimizer,print_every):
+    def compute_loss(self,criterion,outputs,labels):
+        return [criterion(outputs,labels)]
+
+    def train_(self,e,trainloader,criterion,optimizer,print_every):
+
+        epoch,epochs = e
         self.train()
         t0 = time.time()
+        t1 = time.time()
         batches = 0
         running_loss = 0.
         for inputs, labels in trainloader:
@@ -55,7 +62,8 @@ class Network(nn.Module):
             inputs, labels = inputs.to(self.device), labels.to(self.device)
             optimizer.zero_grad()
             outputs = self.forward(inputs)
-            loss = criterion(outputs, labels)
+            # loss = criterion(outputs, labels)
+            loss = self.compute_loss(criterion,outputs,labels)[0]
             loss.backward()
             optimizer.step()
             loss = loss.item()
@@ -63,18 +71,26 @@ class Network(nn.Module):
             running_loss += loss
             
             if batches % print_every == 0:
-                elapsed = time.time()-t0
+                elapsed = time.time()-t1
                 if elapsed > 60:
                     elapsed /= 60.
                     measure = 'min'
                 else:
-                    measure = 'sec'    
+                    measure = 'sec'
+                batch_time = time.time()-t0
+                if batch_time > 60:
+                    batch_time /= 60.
+                    measure2 = 'min'
+                else:
+                    measure2 = 'sec'    
                 print('+----------------------------------------------------------------------+\n'
                         f"{time.asctime().split()[-2]}\n"
                         f"Time elapsed: {elapsed:.3f} {measure}\n"
+                        f"Epoch:{epoch+1}/{epochs}\n"
                         f"Batch: {batches+1}/{len(trainloader)}\n"
-                        f"Average training loss: {running_loss/(batches):.3f}\n"
+                        f"Batch training time: {batch_time:.3f} {measure2}\n"
                         f"Batch training loss: {loss:.3f}\n"
+                        f"Average training loss: {running_loss/(batches):.3f}\n"
                       '+----------------------------------------------------------------------+\n'     
                         )
                 t0 = time.time()
@@ -95,7 +111,8 @@ class Network(nn.Module):
             for inputs, labels in dataloader:
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
                 outputs = self.forward(inputs)
-                loss = self.criterion(outputs, labels)
+                # loss = self.criterion(outputs, labels)
+                loss = self.compute_loss(self.criterion,outputs,labels)[0]
                 running_loss += loss.item()
                 if classifier is not None and metric == 'accuracy':
                      classifier.update_accuracies(outputs,labels)
@@ -134,13 +151,121 @@ class Network(nn.Module):
             inputs = inputs.to(self.device)
             outputs = self.forward(inputs)
         return outputs
+
+    def find_lr(self,trn_loader,init_value=1e-8,final_value=10.,beta=0.98,plot=False):
+        
+        print('\nFinding the ideal learning rate.')
+        
+        # if self.obj:
+        #     size = (224,224)
+
+        model_state = copy.deepcopy(self.model.state_dict())
+        optim_state = copy.deepcopy(self.optimizer.state_dict())
+        optimizer = self.optimizer
+        criterion = self.criterion
+        num = len(trn_loader)-1
+        mult = (final_value / init_value) ** (1/num)
+        lr = init_value
+        optimizer.param_groups[0]['lr'] = lr
+        avg_loss = 0.
+        best_loss = 0.
+        batch_num = 0
+        losses = []
+        log_lrs = []
+        for data in trn_loader:
+            batch_num += 1
+            #As before, get the loss for this mini-batch of inputs/outputs
+            inputs,labels = data
+    #         inputs, labels = Variable(inputs), Variable(labels)
+            
+            # if self.multi_label:
+            #     labels2 = torch.zeros((len(labels), self.num_classes))
+            #     for i,l in enumerate(labels):
+            #         labels2[i] = torch.tensor(self.class_names[l])
+            #     labels = labels2 
     
+            inputs = inputs.to(self.device)
+            # if self.obj:
+            #     labels = [torch.tensor(l).to(self.device) for l in labels]
+            # else:
+            #     labels = labels.to(self.device)
+            labels = labels.to(self.device)
+            optimizer.zero_grad()
+            outputs = self.forward(inputs)
+            # loss = criterion(outputs, labels)
+            loss = self.compute_loss(criterion,outputs,labels)[0]
+            #Compute the smoothed loss
+            avg_loss = beta * avg_loss + (1-beta) *loss.item()
+            smoothed_loss = avg_loss / (1 - beta**batch_num)
+            #Stop if the loss is exploding
+            if batch_num > 1 and smoothed_loss > 4 * best_loss:
+                self.log_lrs, self.find_lr_losses = log_lrs,losses
+                self.model.load_state_dict(model_state)
+                self.optimizer.load_state_dict(optim_state)
+                if plot:
+                    self.plot_find_lr()
+                temp_lr = self.log_lrs[np.argmin(self.find_lr_losses)-(len(self.log_lrs)//8)]
+                self.lr = (10**temp_lr)
+                print('Found it: {}\n'.format(self.lr))
+                return self.lr
+            #Record the best loss
+            if smoothed_loss < best_loss or batch_num==1:
+                best_loss = smoothed_loss
+            #Store the values
+            losses.append(smoothed_loss)
+            log_lrs.append(math.log10(lr))
+            #Do the SGD step
+            loss.backward()
+            optimizer.step()
+            #Update the lr for the next step
+            lr *= mult
+            optimizer.param_groups[0]['lr'] = lr
+        
+        self.log_lrs, self.find_lr_losses = log_lrs,losses
+        self.model.load_state_dict(model_state)
+        self.optimizer.load_state_dict(optim_state)
+        if plot:
+            self.plot_find_lr()
+        temp_lr = self.log_lrs[np.argmin(self.find_lr_losses)-(len(self.log_lrs)//10)]
+        self.lr = (10**temp_lr)
+        print('Found it: {}\n'.format(self.lr))
+        return self.lr
+            
+    def plot_find_lr(self):    
+    
+        plt.ylabel("Validation Loss")
+        plt.xlabel("Learning Rate (log scale)")
+        plt.plot(self.log_lrs,self.find_lr_losses)
+        plt.show()
+#         plt.xscale('log')    
+
+    def setup_one_cycle(self,e):
+        one_cycle_step = int(e*self.one_cycle_factor)
+        lrs1 = np.linspace(self.lr/10, self.lr, one_cycle_step)
+        lrs2 = np.linspace(self.lr, self.lr/10, e-one_cycle_step)
+        m1 = np.linspace(0.95, 0.85, one_cycle_step)
+        m2 = np.linspace(0.85, 0.95, e-one_cycle_step)
+        return one_cycle_step,lrs1,lrs2,m1,m2
+
     def fit(self,trainloader,validloader,epochs=2,print_every=10,validate_every=1,save_best_every=1):
-           
+
+        if self.one_cycle_factor:
+            one_cycle_step,lrs1,lrs2,m1,m2 = self.setup_one_cycle(epochs)   
         for epoch in range(epochs):
+            if self.one_cycle_factor:
+                if epoch < one_cycle_step:
+                    for pg in self.optimizer.param_groups:
+                        pg['lr'] = lrs1[epoch]
+                        if 'momentum' in pg.keys():
+                            pg['momentum'] = m1[epoch]
+                else:
+                    for pg in self.optimizer.param_groups:
+                        pg['lr'] = lrs2[epoch-one_cycle_step]
+                        if 'momentum' in pg.keys():
+                            pg['momentum'] = m2[epoch-one_cycle_step]
             self.model.to(self.device)
             print('Epoch:{:3d}/{}\n'.format(epoch+1,epochs))
-            epoch_train_loss =  self.train_(trainloader,self.criterion,
+            epoch_train_loss =  self.train_((epoch,epochs),trainloader,self.criterion,
                                             self.optimizer,print_every)
                     
             if  validate_every and (epoch % validate_every == 0):
@@ -156,7 +281,8 @@ class Network(nn.Module):
                     measure = 'sec'    
                 print('\n'+'/'*36+'\n'
                         f"{time.asctime().split()[-2]}\n"
-                        f"Epoch {epoch+1}/{epochs}\n"
+                        f"Epoch {epoch+1}/{epochs}\n"    
+                        f"Validation time: {time_elapsed:.3f} {measure}\n"    
                         f"Epoch training loss: {epoch_train_loss:.3f}\n"
                         f"Epoch validation loss: {epoch_validation_loss:.3f}"
                     )
@@ -235,6 +361,7 @@ class Network(nn.Module):
                          criterion,
                          optimizer_name,
                          lr,
+                         one_cycle_factor,
                          dropout_p,
                          model_name,
                          model_type,
@@ -247,6 +374,7 @@ class Network(nn.Module):
         self.optimizer_name = optimizer_name
         self.set_optimizer(self.parameters(),optimizer_name,lr=lr)
         self.lr = lr
+        self.one_cycle_factor = one_cycle_factor
         self.dropout_p = dropout_p
         self.model_name =  model_name
         self.model_type = model_type

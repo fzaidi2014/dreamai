@@ -117,7 +117,7 @@ def normalize_minmax(values):
 def denormalize_minmax(values,orig_values):
     min_ = min(orig_values)
     v = (values * (max(orig_values) - min_) + min_)
-    return np.array([np.round(e) for e in v]);
+    return np.array([np.round(e) for e in v])
 
 def rmse(inputs,targets):
     return torch.sqrt(torch.mean((inputs - targets) ** 2))
