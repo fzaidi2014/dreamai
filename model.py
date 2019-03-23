@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torchvision import datasets, transforms, models
 import time
 from collections import defaultdict
-from dreamai.utils import *
+from utils import *
 import matplotlib.pyplot as plt
 import numpy as np
 import math
@@ -59,7 +59,11 @@ class Network(nn.Module):
         for inputs, labels in trainloader:
             batches += 1
             #t1 = time.time()
-            inputs, labels = inputs.to(self.device), labels.to(self.device)
+            inputs = inputs.to(self.device)
+            if self.obj:
+                labels = [torch.tensor(l).to(self.device) for l in labels]
+            else:    
+                labels = labels.to(self.device)
             optimizer.zero_grad()
             outputs = self.forward(inputs)
             # loss = criterion(outputs, labels)
@@ -109,7 +113,11 @@ class Network(nn.Module):
         rmse_ = 0.
         with torch.no_grad():
             for inputs, labels in dataloader:
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                inputs = inputs.to(self.device)
+                if self.obj:
+                    labels = [torch.tensor(l).to(self.device) for l in labels]
+                else:    
+                    labels = labels.to(self.device)
                 outputs = self.forward(inputs)
                 # loss = self.criterion(outputs, labels)
                 loss = self.compute_loss(self.criterion,outputs,labels)[0]
@@ -123,7 +131,8 @@ class Network(nn.Module):
 
         ret = {}
         print('Running_loss: {:.3f}'.format(running_loss))
-        print('Total rmse: {:.3f}'.format(rmse_))
+        if metric == 'rmse':
+            print('Total rmse: {:.3f}'.format(rmse_))
         ret['final_loss'] = running_loss/len(dataloader)
 
         if classifier is not None:
@@ -132,7 +141,6 @@ class Network(nn.Module):
             ret['final_rmse'] = rmse_/len(dataloader)
 
         return ret
-    
    
     def classify(self,inputs,topk=1):
         self.eval()
@@ -185,11 +193,11 @@ class Network(nn.Module):
             #     labels = labels2 
     
             inputs = inputs.to(self.device)
-            # if self.obj:
-            #     labels = [torch.tensor(l).to(self.device) for l in labels]
-            # else:
-            #     labels = labels.to(self.device)
-            labels = labels.to(self.device)
+            if self.obj:
+                labels = [torch.tensor(l).to(self.device) for l in labels]
+            else:
+                labels = labels.to(self.device)
+            # labels = labels.to(self.device)
             optimizer.zero_grad()
             outputs = self.forward(inputs)
             # loss = criterion(outputs, labels)
@@ -305,8 +313,9 @@ class Network(nn.Module):
                         self.best_accuracy = epoch_accuracy
                         torch.save(self.state_dict(),self.best_model_file)
 
-                elif (self.model_type.lower() == 'regressor' or self.model_type.lower() == 'recommender') and (epoch % save_best_every == 0):
-                    print('\n'+'\\'*36+'\n')
+                elif (self.model_type.lower()=='regressor' or self.model_type.lower()=='recommender' or self.model_type.lower()=='obj_detection'):
+                    #  and (epoch % save_best_every==0):
+                    print('\\'*36+'\n')
                     if self.best_validation_loss == None or (epoch_validation_loss < self.best_validation_loss):
                         print('\n**********Updating best validation loss**********\n')
                         if self.best_validation_loss is not None:
@@ -314,10 +323,10 @@ class Network(nn.Module):
                         print('New best loss = {:.7f}\n'.format(epoch_validation_loss))
                         print('*'*49+'\n')
                         self.best_validation_loss = epoch_validation_loss
-                        torch.save(self.state_dict(),self.best_model_file)
+                        torch.save(self.state_dict(),self.best_model_file)        
                     
                 self.train() # just in case we forgot to put the model back to train mode in validate
-                
+        torch.cuda.empty_cache()
         print('\nLoading best model\n')
         self.load_state_dict(torch.load(self.best_model_file))
                 
@@ -368,7 +377,9 @@ class Network(nn.Module):
                          best_accuracy,
                          best_validation_loss,
                          best_model_file,
-                         chkpoint_file):
+                         chkpoint_file,
+                         class_names,
+                         num_classes):
         
         self.set_criterion(criterion)
         self.optimizer_name = optimizer_name
@@ -383,6 +394,8 @@ class Network(nn.Module):
         #print('set_model_params: best accuracy = {:.3f}'.format(self.best_accuracy))  
         self.best_model_file = best_model_file
         self.chkpoint_file = chkpoint_file
+        self.class_names = class_names
+        self.num_classes = num_classes
     
     def get_model_params(self):
         params = {}

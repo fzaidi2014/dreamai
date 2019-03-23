@@ -4,6 +4,7 @@ import torch
 from torch.utils.data.sampler import SubsetRandomSampler,SequentialSampler,BatchSampler
 import numpy as np
 from torch import nn
+import cv2
 
 
 class Flatten(nn.Module):
@@ -162,3 +163,11 @@ def get_center_delta(features, centers, targets, alpha, device):
     result[uni_targets, :] = delta_centers
     return result
 
+def get_test_input(path = "/home/farhan/Downloads/YOLO_v3_tutorial_from_scratch-master/dog-cycle-car.png",size = (224,224)):
+    img = cv2.imread(path)
+    img = cv2.resize(img, size)          #Resize to the input dimension
+    img_ =  img[:,:,::-1].transpose((2,0,1))  # BGR -> RGB | H X W C -> C X H X W
+    img_ = img_[np.newaxis,:,:,:]/255.0       #Add a channel at 0 (for batch) | Normalise
+    img_ = torch.from_numpy(img_).float()     #Convert to float
+    # img_ = Variable(img_)                     # Convert to Variable
+    return img_

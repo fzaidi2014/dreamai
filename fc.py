@@ -5,8 +5,8 @@ import torch.nn.functional as F
 from torchvision import datasets, transforms, models
 import time
 from collections import defaultdict
-from dreamai.utils import *
-from dreamai.model import *
+from utils import *
+from model import *
 
 
 
@@ -63,20 +63,21 @@ class FC(Network):
         self.to(self.device)
         self.model.to(self.device)
         
-        self.set_model_params(criterion,
-                              optimizer_name,
-                              lr,
-                              one_cycle_factor,
-                              dropout_p,
-                              model_name,
-                              model_type,
-                              best_accuracy,
-                              best_validation_loss,
-                              best_model_file,
-                              chkpoint_file,
-                              num_inputs,
-                              num_outputs,
-                              layers,class_names)
+        self.set_model_params(criterion = criterion,
+                              optimizer_name = optimizer_name,
+                              lr = lr,
+                              one_cycle_factor = one_cycle_factor,
+                              dropout_p = dropout_p,
+                              model_name = model_name,
+                              model_type = model_type,
+                              best_accuracy = best_accuracy,
+                              best_validation_loss = best_validation_loss,
+                              best_model_file = best_model_file,
+                              chkpoint_file = chkpoint_file,
+                              num_inputs = num_inputs,
+                              num_outputs = num_outputs,
+                              layers = layers,
+                              class_names = class_names)
             
     def forward(self,x):
         return self.model(flatten_tensor(x))
@@ -111,28 +112,34 @@ class FC(Network):
         
         
         super(FC, self).set_model_params(
-                              criterion,
-                              optimizer_name,
-                              lr,
-                              one_cycle_factor,
-                              dropout_p,
-                              model_name,
-                              model_type,
-                              best_accuracy,
-                              best_validation_loss,
-                              best_model_file,
-                              chkpoint_file
+                              criterion = criterion,
+                              optimizer_name = optimizer_name,
+                              lr = lr,
+                              one_cycle_factor = one_cycle_factor,
+                              dropout_p = dropout_p,
+                              model_name = model_name,
+                              model_type = model_type,
+                              best_accuracy = best_accuracy,
+                              best_validation_loss = best_validation_loss,
+                              best_model_file = best_model_file,
+                              chkpoint_file = chkpoint_file,
+                              class_names = class_names
                               )
         
         self.num_inputs = num_inputs
         self.num_outputs = num_outputs
         self.layer_dims = layers
 
-        if self.model_type == 'classifier':
-            if class_names is not None:
-                self.class_names = class_names
-            else:
-                self.class_names = {k:str(v) for k,v in enumerate(list(range(num_outputs)))}
+        if not self.class_names:
+            self.class_names = {k:str(v) for k,v in enumerate(list(range(head['num_outputs'])))}
+        else:
+            self.num_classes = len(self.class_names)    
+
+        # if self.model_type == 'classifier':
+        #     if class_names is not None:
+        #         self.class_names = class_names
+        #     else:
+        #         self.class_names = {k:str(v) for k,v in enumerate(list(range(num_outputs)))}
         
     def get_model_params(self):
         params = super(FC, self).get_model_params()

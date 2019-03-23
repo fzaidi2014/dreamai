@@ -1,4 +1,5 @@
 from dai_imports import*
+from obj_utils import*
 import utils
 
 class my_image_csv_dataset(Dataset):
@@ -99,7 +100,6 @@ class my_image_folder(DatasetFolder):
             target = self.target_transform(target)
         return sample, target
 
-
 def extract_data(dt):
 
     x = []
@@ -189,6 +189,7 @@ def get_img_stats(dataset,sz):
     i = 0
     imgs = []
     for img,_ in dataset:
+        # print(img.size())
         if i > size:
             break
         imgs.append(img)
@@ -312,7 +313,7 @@ class DataProcessor:
                 zero_idx[i] = t
             train_df.iloc[:,2] = [torch.from_numpy(z).type(torch.LongTensor) for z in zero_idx]
             self.data_dir,self.num_classes,self.class_names = data_path,len(onehot_classes),onehot_classes
-            self.set_up_object_detection([4,2,1],[0.7, 1., 1.3],[(1.,1.), (1.,0.5), (0.5,1.)])
+            # self.set_up_object_detection([4,2,1],[0.7, 1., 1.3],[(1.,1.), (1.,0.5), (0.5,1.)])
 
         elif self.reg:
             print('\nRegression\n')
@@ -388,8 +389,10 @@ class DataProcessor:
         self.image_size = s
         if not data_dict:
             data_dict = self.data_dict
-        data_dfs,data_dir,minorities,class_diffs,obj = (data_dict['data_dfs'],data_dict['data_dir'],data_dict['minorities'],
-                                                        data_dict['class_diffs'],data_dict['obj'])
+        data_dfs,data_dir,minorities,class_diffs,obj,multi_label = (data_dict['data_dfs'],data_dict['data_dir'],data_dict['minorities'],
+                                                        data_dict['class_diffs'],data_dict['obj'],data_dict['multi_label'])
+        if obj or multi_label:
+           balance = False                                                 
         if tta:
             tta_tfms = {self.tr_name: transforms.Compose( 
                 [
@@ -438,17 +441,20 @@ class DataProcessor:
                        }
         else:
             bal_tfms = {self.tr_name: bal_tfms, self.val_name: None, self.test_name: None}
-        
+        if obj:
+            resize_transform = transforms.Resize(s)
+        else:
+            resize_transform = transforms.RandomResizedCrop(s[0])    
         if not tfms:
             tfms = [
-                transforms.RandomResizedCrop(s[0]),
+                resize_transform,
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ]
         else:
             
             tfms_temp = [
-                transforms.RandomResizedCrop(s[0]),
+                resize_transform,
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ]
@@ -459,20 +465,22 @@ class DataProcessor:
         data_transforms = {
             self.tr_name: tfms,
             self.val_name: [
-                transforms.Resize(s[0]+50),
-                transforms.CenterCrop(s[0]),
+                # transforms.Resize(s[0]+50),
+                # transforms.CenterCrop(s[0]),
+                transforms.Resize(s),
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ],
             self.test_name: [
-                transforms.Resize(s[0]+50),
-                transforms.CenterCrop(s[0]),
+                # transforms.Resize(s[0]+50),
+                # transforms.CenterCrop(s[0]),
+                transforms.Resize(s),
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             ]
         }
 
-        temp_tfms = [transforms.RandomResizedCrop(s[0]), transforms.ToTensor()]
+        temp_tfms = [resize_transform, transforms.ToTensor()]
         temp_dataset = dataset(os.path.join(data_dir,self.tr_name),data_dfs[self.tr_name],temp_tfms)
         self.img_mean,self.img_std = get_img_stats(temp_dataset,60)
         data_transforms[self.tr_name][-1].mean,data_transforms[self.tr_name][-1].std = self.img_mean,self.img_std
@@ -528,6 +536,38 @@ class DataProcessor:
             self.imshow(out, title=[self.class_names[np.nonzero(x.type(torch.LongTensor))] for x in classes])    
         else:    
             self.imshow(out, title=[self.class_names[x] for x in classes])
+
+    # def set_up_object_detection(self,anc_grids,anc_zooms,anc_ratios,num_colr = 12):
+
+    #     # print('Would you like to give your own values for anchor_grids, anchor_zooms,and anchor_ratios? The default values are: {}, {} and {}'
+    #     # .format(anc_grids,anc_zooms,anc_ratios))
+    #     # print('If so, you may call the function "set_up_object_detection" with your own paramteres.')
+
+    #     cmap = get_cmap(num_colr)
+    #     self.colr_list = [cmap(float(x)) for x in range(num_colr)]
+    #     self.num_colr = num_colr
+    #     self.create_anchors(anc_grids,anc_zooms,anc_ratios)
+    #     self.custom_head = SSD_MultiHead(self.k,self.num_classes,0.45,-4.)
+    #     self.loss_f = FocalLoss(self.num_classes)
+
+    # def create_anchors(self,anc_grids,anc_zooms,anc_ratios):
+    
+    #     anchor_scales = [(anz*i,anz*j) for anz in anc_zooms for (i,j) in anc_ratios]
+    #     k = len(anchor_scales)
+    #     anc_offsets = [1/(o*2) for o in anc_grids]
+    #     anc_x = np.concatenate([np.repeat(np.linspace(ao, 1-ao, ag), ag)
+    #                             for ao,ag in zip(anc_offsets,anc_grids)])
+    #     anc_y = np.concatenate([np.tile(np.linspace(ao, 1-ao, ag), ag)
+    #                             for ao,ag in zip(anc_offsets,anc_grids)])
+    #     anc_ctrs = np.repeat(np.stack([anc_x,anc_y], axis=1), k, axis=0)
+    #     anc_sizes  =   np.concatenate([np.array([[o/ag,p/ag] for i in range(ag*ag) for o,p in anchor_scales])
+    #                 for ag in anc_grids])
+    #     grid_sizes = torch.tensor(np.concatenate([np.array(
+    #                             [ 1/ag for i in range(ag*ag) for o,p in anchor_scales])
+    #                 for ag in anc_grids])).float().unsqueeze(1).to(self.device)
+    #     anchors = torch.tensor(np.concatenate([anc_ctrs, anc_sizes], axis=1)).float().to(self.device)
+    #     anchor_cnr = hw2corners(anchors[:,:2], anchors[:,2:])
+    #     self.anchors,self.anchor_cnr,self.grid_sizes,self.k = anchors,anchor_cnr,grid_sizes,k        
 
 
 
