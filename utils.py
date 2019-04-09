@@ -6,13 +6,16 @@ import numpy as np
 from torch import nn
 import cv2
 
+class Printer(nn.Module):
+    def forward(self,x):
+        print(x.size())
+        return x
 
 class Flatten(nn.Module):
     def forward(self, input):
         return input.view(input.size(0), -1)
 
 DAI_AvgPool = nn.AdaptiveAvgPool2d(1)
-
 
 def update_classwise_accuracies(preds,labels,class_correct,class_totals):
     correct = np.squeeze(preds.eq(labels.data.view_as(preds)))
@@ -163,7 +166,7 @@ def get_center_delta(features, centers, targets, alpha, device):
     result[uni_targets, :] = delta_centers
     return result
 
-def get_test_input(path = "/home/farhan/Downloads/YOLO_v3_tutorial_from_scratch-master/dog-cycle-car.png",size = (224,224)):
+def get_test_input(path = "/home/farhan/Downloads/dog-cycle-car.png",size = (224,224)):
     img = cv2.imread(path)
     img = cv2.resize(img, size)          #Resize to the input dimension
     img_ =  img[:,:,::-1].transpose((2,0,1))  # BGR -> RGB | H X W C -> C X H X W

@@ -285,7 +285,7 @@ class DataProcessor:
 
             # bounding boxes
 
-            int_targets = [list(map(int,x)) for x in split_targets]
+            int_targets = [list(map(float,x)) for x in split_targets]
             zero_targets = np.zeros((len(targets),max(lengths)),dtype=int)
             for i,t in enumerate(zero_targets):
                 t[len(t)-len(int_targets[i]):] = int_targets[i]
@@ -308,7 +308,11 @@ class DataProcessor:
             c_names = list(onehot_classes)
             class_idx = [[c_names.index(i) for i in c] for c in obj_split_targets]
             zero_idx = np.zeros((len(targets),max(lengths)//4),dtype=int)
+            # print(zero_idx.shape)
             for i,t in enumerate(zero_idx):
+                # temp_l = len(class_idx[i])
+                # if temp_l > 90:
+                #     print(i,temp_l)
                 t[len(t)-len(class_idx[i]):] = class_idx[i]
                 zero_idx[i] = t
             train_df.iloc[:,2] = [torch.from_numpy(z).type(torch.LongTensor) for z in zero_idx]
@@ -363,7 +367,9 @@ class DataProcessor:
         train_df.to_csv(os.path.join(data_path,'train.csv'),index=False)
         val_df.to_csv(os.path.join(data_path,'val.csv'),index=False)
         test_df.to_csv(os.path.join(data_path,'test.csv'),index=False)
-        self.minorities,self.class_diffs = get_minorities(train_df)
+        self.minorities,self.class_diffs = None,None
+        if (not self.obj) or (not self.multi_label):
+            self.minorities,self.class_diffs = get_minorities(train_df)
         self.data_dfs = {self.tr_name:train_df, self.val_name:val_df, self.test_name:test_df}
         data_dict = {'data_dfs':self.data_dfs,'data_dir':self.data_dir,'num_classes':self.num_classes,'class_names':self.class_names,
                 'minorities':self.minorities,'class_diffs':self.class_diffs,'obj':self.obj,'multi_label':self.multi_label}

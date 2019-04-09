@@ -60,8 +60,8 @@ class FC(Network):
                 self.model.add_module(output_non_linearity,nn.Sigmoid())
                 self.output_non_linearity = output_non_linearity
 
-        self.to(self.device)
-        self.model.to(self.device)
+        # self.to(self.device)
+        self.model = self.model.to(self.device)
         
         self.set_model_params(criterion = criterion,
                               optimizer_name = optimizer_name,

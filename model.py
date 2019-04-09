@@ -40,7 +40,7 @@ class Network(nn.Module):
         if device is not None:
             self.device = device
         else:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             print(self.device)
 
     def forward(self,x):
@@ -61,7 +61,8 @@ class Network(nn.Module):
             #t1 = time.time()
             inputs = inputs.to(self.device)
             if self.obj:
-                labels = [torch.tensor(l).to(self.device) for l in labels]
+                labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
+                # labels = [torch.tensor(l).to(self.device) for l in labels]
             else:    
                 labels = labels.to(self.device)
             optimizer.zero_grad()
@@ -115,7 +116,8 @@ class Network(nn.Module):
             for inputs, labels in dataloader:
                 inputs = inputs.to(self.device)
                 if self.obj:
-                    labels = [torch.tensor(l).to(self.device) for l in labels]
+                    labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
+                    # labels = [torch.tensor(l).to(self.device) for l in labels]
                 else:    
                     labels = labels.to(self.device)
                 outputs = self.forward(inputs)
@@ -144,7 +146,7 @@ class Network(nn.Module):
    
     def classify(self,inputs,topk=1):
         self.eval()
-        self.model.to(self.device)
+        self.model = self.model.to(self.device)
         with torch.no_grad():
             inputs = inputs.to(self.device)
             outputs = self.forward(inputs)
@@ -154,7 +156,7 @@ class Network(nn.Module):
 
     def predict(self,inputs):
         self.eval()
-        self.model.to(self.device)
+        self.model = self.model.to(self.device)
         with torch.no_grad():
             inputs = inputs.to(self.device)
             outputs = self.forward(inputs)
@@ -194,7 +196,8 @@ class Network(nn.Module):
     
             inputs = inputs.to(self.device)
             if self.obj:
-                labels = [torch.tensor(l).to(self.device) for l in labels]
+                labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
+                # labels = [torch.tensor(l).to(self.device) for l in labels]
             else:
                 labels = labels.to(self.device)
             # labels = labels.to(self.device)
@@ -271,7 +274,7 @@ class Network(nn.Module):
                         pg['lr'] = lrs2[epoch-one_cycle_step]
                         if 'momentum' in pg.keys():
                             pg['momentum'] = m2[epoch-one_cycle_step]
-            self.model.to(self.device)
+            self.model = self.model.to(self.device)
             print('Epoch:{:3d}/{}\n'.format(epoch+1,epochs))
             epoch_train_loss =  self.train_((epoch,epochs),trainloader,self.criterion,
                                             self.optimizer,print_every)
@@ -453,7 +456,7 @@ class EnsembleModel(Network):
                 preds_list = []  
                 for model in self.models:
                     model[0].eval()
-                    model[0].to(model[0].device)
+                    model[0] = model[0].to(model[0].device)
                     inputs, labels = inputs.to(model[0].device), labels.to(model[0].device)
                     outputs = model[0].forward(inputs)
                     if metric == 'accuracy':
@@ -483,7 +486,7 @@ class EnsembleModel(Network):
         ps_list = []  
         for model in self.models:
             model[0].eval()
-            model[0].to(model[0].device)
+            model[0] = model[0].to(model[0].device)
             with torch.no_grad():
                 inputs = inputs.to(model[0].device)
                 outputs = model[0].forward(inputs)
