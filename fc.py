@@ -123,7 +123,8 @@ class FC(Network):
                               best_validation_loss = best_validation_loss,
                               best_model_file = best_model_file,
                               chkpoint_file = chkpoint_file,
-                              class_names = class_names
+                              class_names = class_names,
+                              num_classes = num_outputs
                               )
         
         self.num_inputs = num_inputs
@@ -131,7 +132,7 @@ class FC(Network):
         self.layer_dims = layers
 
         if not self.class_names:
-            self.class_names = {k:str(v) for k,v in enumerate(list(range(head['num_outputs'])))}
+            self.class_names = {k:str(v) for k,v in enumerate(list(range(self.num_outputs)))}
         else:
             self.num_classes = len(self.class_names)    
 

@@ -28,6 +28,7 @@ class TransferNetworkImg(Network):
                     'layers':[],
                     'model_type':'classifier'
                  },
+                 pre_trained_back = None,
                  class_names = [],
                  num_classes = None,
                  add_extra = True,
@@ -43,6 +44,7 @@ class TransferNetworkImg(Network):
         if set_head:
             self.set_model_head(model_name = model_name,
                     head = head,
+                    pre_trained_back = pre_trained_back,
                     dropout_p = dropout_p,
                     criterion = criterion,
                     device = device
@@ -158,7 +160,11 @@ class TransferNetworkImg(Network):
             channels = meta['conv_channels']
             dream_model = nn.Sequential(
                 nn.Conv2d(channels,channels,3,1,1),
-                Printer(),
+                # Printer(),
+                nn.BatchNorm2d(channels),
+                nn.ReLU(True),
+                nn.Dropout2d(drop_out),
+                nn.Conv2d(channels,channels,3,1,1),
                 nn.BatchNorm2d(channels),
                 nn.ReLU(True),
                 nn.Dropout2d(drop_out),
@@ -166,10 +172,6 @@ class TransferNetworkImg(Network):
                 nn.BatchNorm2d(channels),
                 nn.ReLU(True),
                 nn.Dropout2d(drop_out)
-                # nn.Conv2d(channels,channels,3,1,1),
-                # nn.BatchNorm2d(channels),
-                # nn.ReLU(True),
-                # nn.Dropout2d(0.4)
                 )        
         self.dream_model = dream_model          
            
@@ -180,6 +182,7 @@ class TransferNetworkImg(Network):
                                 'class_names': None,
                                 'model_type':'classifier'
                                },
+                        pre_trained_back = None,
                         criterion = nn.NLLLoss(),  
                         adaptive = True,       
                         dropout_p = 0.45,
@@ -201,6 +204,9 @@ class TransferNetworkImg(Network):
         # name = ''.join([x for x in model_name.lower() if x.isalpha()])
         name = model_name.lower()
         meta = models_meta[name]
+        if pre_trained_back:
+            self.model = pre_trained_back
+            self.dream_model = None
         modules = list(self.model.children())
         l = modules[:meta['head_id']]
         if self.dream_model:
@@ -222,9 +228,14 @@ class TransferNetworkImg(Network):
             model.add_module('custom_head',head)
         else:
             head['criterion'] = criterion
+            if head['model_type'].lower() == 'classifier':
+                head['output_non_linearity'] = None
             self.num_outputs = head['num_outputs']
             fc = modules[-1]
-            in_features =  fc.in_features
+            try:
+                in_features =  fc.in_features
+            except:
+                in_features = fc.model.out.in_features    
             fc = FC(
                     num_inputs = in_features,
                     num_outputs = head['num_outputs'],
@@ -1000,206 +1011,245 @@ class CustomSSDObjectDetection(TransferNetworkImg):
         self.custom_head = CustomSSD_MultiHead(len(anc_grids),self.k,num_classes,drop_out,-4.)
         self.loss_f = FocalLoss(num_classes,device=self.device)
 
-    def create_anchors(self,anc_grids,anc_zooms,anc_ratios):
+    # def create_anchors(self,anc_grids,anc_zooms,anc_ratios):
     
-        anchor_scales = [(anz*i,anz*j) for anz in anc_zooms for (i,j) in anc_ratios]
-        k = len(anchor_scales)
-        anc_offsets = [1/(o*2) for o in anc_grids]
-        anc_x = np.concatenate([np.repeat(np.linspace(ao, 1-ao, ag), ag)
-                                for ao,ag in zip(anc_offsets,anc_grids)])
-        anc_y = np.concatenate([np.tile(np.linspace(ao, 1-ao, ag), ag)
-                                for ao,ag in zip(anc_offsets,anc_grids)])
-        anc_ctrs = np.repeat(np.stack([anc_x,anc_y], axis=1), k, axis=0)
-        anc_sizes  =   np.concatenate([np.array([[o/ag,p/ag] for i in range(ag*ag) for o,p in anchor_scales])
-                    for ag in anc_grids])
-        grid_sizes = torch.tensor(np.concatenate([np.array(
-                                [ 1/ag for i in range(ag*ag) for o,p in anchor_scales])
-                    for ag in anc_grids])).float().unsqueeze(1).to(self.device)
-        anchors = torch.tensor(np.concatenate([anc_ctrs, anc_sizes], axis=1)).float().to(self.device)
-        anchor_cnr = hw2corners(anchors[:,:2], anchors[:,2:])
-        self.anchors,self.anchor_cnr,self.grid_sizes,self.k = anchors,anchor_cnr,grid_sizes,k
+    #     anchor_scales = [(anz*i,anz*j) for anz in anc_zooms for (i,j) in anc_ratios]
+    #     k = len(anchor_scales)
+    #     anc_offsets = [1/(o*2) for o in anc_grids]
+    #     anc_x = np.concatenate([np.repeat(np.linspace(ao, 1-ao, ag), ag)
+    #                             for ao,ag in zip(anc_offsets,anc_grids)])
+    #     anc_y = np.concatenate([np.tile(np.linspace(ao, 1-ao, ag), ag)
+    #                             for ao,ag in zip(anc_offsets,anc_grids)])
+    #     anc_ctrs = np.repeat(np.stack([anc_x,anc_y], axis=1), k, axis=0)
+    #     anc_sizes  =   np.concatenate([np.array([[o/ag,p/ag] for i in range(ag*ag) for o,p in anchor_scales])
+    #                 for ag in anc_grids])
+    #     grid_sizes = torch.tensor(np.concatenate([np.array(
+    #                             [ 1/ag for i in range(ag*ag) for o,p in anchor_scales])
+    #                 for ag in anc_grids])).float().unsqueeze(1).to(self.device)
+    #     anchors = torch.tensor(np.concatenate([anc_ctrs, anc_sizes], axis=1)).float().to(self.device)
+    #     anchor_cnr = hw2corners(anchors[:,:2], anchors[:,2:])
+    #     self.anchors,self.anchor_cnr,self.grid_sizes,self.k = anchors,anchor_cnr,grid_sizes,k
 
-    # def draw_im(im, ann, cats):
-    #     ax = img_grid(im, figsize=(16,8))
-    #     for b,c in ann:
-    #         b = bb_hw(b)
-    #         draw_rect(ax, b)
-    #         draw_text(ax, b[:2], cats[c], sz=16)
+    # # def draw_im(im, ann, cats):
+    # #     ax = img_grid(im, figsize=(16,8))
+    # #     for b,c in ann:
+    # #         b = bb_hw(b)
+    # #         draw_rect(ax, b)
+    # #         draw_text(ax, b[:2], cats[c], sz=16)
 
-    # def draw_idx(i):
-    #     im_a = trn_anno[i]
-    # #     im = open_image(IMG_PATH/trn_fns[i])
-    #     im = Image.open(IMG_PATH/trn_fns[i]).convert('RGB')
-    #     draw_im(im, im_a)
+    # # def draw_idx(i):
+    # #     im_a = trn_anno[i]
+    # # #     im = open_image(IMG_PATH/trn_fns[i])
+    # #     im = Image.open(IMG_PATH/trn_fns[i]).convert('RGB')
+    # #     draw_im(im, im_a)
 
-    def show_objects(self, ax, ima, bbox, clas, prs=None, thresh=0.4):
+    # def intersect(self,box_a, box_b):
 
-        return self.show_objects_(ax, ima, ((bbox*self.image_size[0]).long()).numpy(),
-            (clas).numpy(), (prs).numpy() if prs is not None else None, thresh)
+    #     max_xy = torch.min(box_a[:, None, 2:], box_b[None, :, 2:])
+    #     min_xy = torch.max(box_a[:, None, :2], box_b[None, :, :2])
+    #     inter = torch.clamp((max_xy - min_xy), min=0)
+    #     return inter[:, :, 0] * inter[:, :, 1]
 
-    def show_objects_(self, ax, im, bbox, clas=None, prs=None, thresh=0.3):
+    # def box_sz(self,b): return ((b[:, 2]-b[:, 0]) * (b[:, 3]-b[:, 1]))
 
-        bb = [bb_hw(o) for o in bbox.reshape(-1,4)]
-        # print(bb)
-        if prs is None:  prs  = [None]*len(bb)
-        if clas is None: clas = [None]*len(bb)
-        ax = img_grid(im, ax=ax)
-        for i,(b,c,pr) in enumerate(zip(bb, clas, prs)):
-            if((b[2]>0) and (pr is None or pr > thresh)):
-                draw_rect(ax, b, color=self.colr_list[i % self.num_colr])
-                txt = f'{i}: '
-                if c is not None: txt += ('bg' if c==len(self.class_names) else self.class_names[c])
-                if pr is not None: txt += f' {pr:.2f}'
-                draw_text(ax, b[:2], txt, color=self.colr_list[i % self.num_colr])
-        return ax
+    # def jaccard(self,box_a, box_b):
 
-    def intersect(self,box_a, box_b):
+    #     inter = self.intersect(box_a, box_b)
+    #     union = self.box_sz(box_a).unsqueeze(1) + self.box_sz(box_b).unsqueeze(0) - inter
+    #     return inter / union
 
-        max_xy = torch.min(box_a[:, None, 2:], box_b[None, :, 2:])
-        min_xy = torch.max(box_a[:, None, :2], box_b[None, :, :2])
-        inter = torch.clamp((max_xy - min_xy), min=0)
-        return inter[:, :, 0] * inter[:, :, 1]
+    # def get_y(self, bbox, clas):
 
-    def box_sz(self,b): return ((b[:, 2]-b[:, 0]) * (b[:, 3]-b[:, 1]))
+    #     bbox = bbox.view(-1,4)/self.image_size[0]
+    #     bb_keep = ((bbox[:,2]-bbox[:,0])>0).nonzero()[:,0]
+    #     return bbox[bb_keep],clas[bb_keep]
 
-    def jaccard(self,box_a, box_b):
+    # def actn_to_bb(self, actn):
+    #     actn_bbs = torch.tanh(actn)
+    #     # print(self.grid_sizes.size())
+    #     # print(self.anchors[:,:2].size())
+    #     actn_centers = (actn_bbs[:,:2]/2 * self.grid_sizes) + self.anchors[:,:2]
+    #     actn_hw = (actn_bbs[:,2:]/2+1) * self.anchors[:,2:]
+    #     return hw2corners(actn_centers, actn_hw)
 
-        inter = self.intersect(box_a, box_b)
-        union = self.box_sz(box_a).unsqueeze(1) + self.box_sz(box_b).unsqueeze(0) - inter
-        return inter / union
+    # def map_to_ground_truth(self, overlaps, print_it=False):
 
-    def get_y(self, bbox, clas):
+    #     prior_overlap, prior_idx = overlaps.max(1)
+    # #     if print_it: print(prior_overlap)
+    #     gt_overlap, gt_idx = overlaps.max(0)
+    #     gt_overlap[prior_idx] = 1.99
+    #     for i,o in enumerate(prior_idx): gt_idx[o] = i
+    #     return gt_overlap,gt_idx
 
-        bbox = bbox.view(-1,4)/self.image_size[0]
-        bb_keep = ((bbox[:,2]-bbox[:,0])>0).nonzero()[:,0]
-        return bbox[bb_keep],clas[bb_keep]
+    # def ssd_1_loss(self, b_c,b_bb,bbox,clas,print_it=False):
 
-    def actn_to_bb(self, actn):
-        actn_bbs = torch.tanh(actn)
-        # print(self.grid_sizes.size())
-        # print(self.anchors[:,:2].size())
-        actn_centers = (actn_bbs[:,:2]/2 * self.grid_sizes) + self.anchors[:,:2]
-        actn_hw = (actn_bbs[:,2:]/2+1) * self.anchors[:,2:]
-        return hw2corners(actn_centers, actn_hw)
+    #     anchor_cnr = hw2corners(self.anchors[:,:2], self.anchors[:,2:])
+    #     bbox,clas = self.get_y(bbox,clas)
+    #     a_ic = self.actn_to_bb(b_bb)
+    #     overlaps = self.jaccard(bbox.data, anchor_cnr.data)
+    #     gt_overlap,gt_idx = self.map_to_ground_truth(overlaps,print_it)
+    #     gt_clas = clas[gt_idx]
+    #     pos = gt_overlap > 0.4
+    #     pos_idx = torch.nonzero(pos)[:,0]
+    #     gt_clas[1-pos] = len(self.class_names)
+    #     gt_bbox = bbox[gt_idx]
+    #     loc_loss = ((a_ic[pos_idx] - gt_bbox[pos_idx]).abs()).mean()
+    #     clas_loss  = self.loss_f(b_c, gt_clas)
+    #     return loc_loss, clas_loss
 
-    def map_to_ground_truth(self, overlaps, print_it=False):
+    # def ssd_loss(self, pred, targ, print_it=False):
 
-        prior_overlap, prior_idx = overlaps.max(1)
-    #     if print_it: print(prior_overlap)
-        gt_overlap, gt_idx = overlaps.max(0)
-        gt_overlap[prior_idx] = 1.99
-        for i,o in enumerate(prior_idx): gt_idx[o] = i
-        return gt_overlap,gt_idx
+    #     lcs,lls = 0.,0.
+    #     for b_c,b_bb,bbox,clas in zip(*pred,*targ):
+    #         loc_loss,clas_loss = self.ssd_1_loss(b_c,b_bb,bbox,clas)
+    #         lls += loc_loss
+    #         lcs += clas_loss
+    #     if print_it: print(f'loc: {lls.data[0]}, clas: {lcs.data[0]}')
+    #     return lls+lcs
 
-    def ssd_1_loss(self, b_c,b_bb,bbox,clas,print_it=False):
+    # def set_loss(self,loss):
+    #     self.loss_f = loss    
 
-        anchor_cnr = hw2corners(self.anchors[:,:2], self.anchors[:,2:])
-        bbox,clas = self.get_y(bbox,clas)
-        a_ic = self.actn_to_bb(b_bb)
-        overlaps = self.jaccard(bbox.data, anchor_cnr.data)
-        gt_overlap,gt_idx = self.map_to_ground_truth(overlaps,print_it)
-        gt_clas = clas[gt_idx]
-        pos = gt_overlap > 0.4
-        pos_idx = torch.nonzero(pos)[:,0]
-        gt_clas[1-pos] = len(self.class_names)
-        gt_bbox = bbox[gt_idx]
-        loc_loss = ((a_ic[pos_idx] - gt_bbox[pos_idx]).abs()).mean()
-        clas_loss  = self.loss_f(b_c, gt_clas)
-        return loc_loss, clas_loss
-
-    def ssd_loss(self, pred, targ, print_it=False):
-
-        lcs,lls = 0.,0.
-        for b_c,b_bb,bbox,clas in zip(*pred,*targ):
-            loc_loss,clas_loss = self.ssd_1_loss(b_c,b_bb,bbox,clas)
-            lls += loc_loss
-            lcs += clas_loss
-        if print_it: print(f'loc: {lls.data[0]}, clas: {lcs.data[0]}')
-        return lls+lcs
-
-    def set_loss(self,loss):
-        self.loss_f = loss    
-
-    # def dai_plot_results(self,thresh,loader,model):
+    # # def dai_plot_results(self,thresh,loader,model):
     
+    # #     dai_x,dai_y = next(iter(loader))
+    # #     dai_x = dai_x.to(self.device)
+    # #     dai_y = [torch.tensor(l).to(self.device) for l in dai_y]
+    # #     dai_batch = model(dai_x)
+    # #     dai_b_clas,dai_b_bb = dai_batch
+    # #     dai_x = dai_x.cpu()
+    # #     dai_y = [torch.tensor(l).cpu() for l in dai_y]
+
+
+    # #     fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    # #     for idx,ax in enumerate(axes.flat):
+    # #         ima = dai.denorm_img(dai_x[idx])
+    # #         bbox,clas = self.get_y(dai_y[0][idx], dai_y[1][idx])
+    # #         a_ic = self.actn_to_bb(dai_b_bb[idx])
+    # #         clas_pr, clas_ids = dai_b_clas[idx].max(1)
+    # #         clas_pr = clas_pr.sigmoid()
+    # #         self.show_objects(ax, ima, a_ic, clas_ids, clas_pr, clas_pr.max().data[0]*thresh)
+    # #     plt.tight_layout()  
+
+    # def batch_loss(self,model,loader,crit):
+        
     #     dai_x,dai_y = next(iter(loader))
     #     dai_x = dai_x.to(self.device)
-    #     dai_y = [torch.tensor(l).to(self.device) for l in dai_y]
+    #     dai_y = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in dai_y]
     #     dai_batch = model(dai_x)
-    #     dai_b_clas,dai_b_bb = dai_batch
-    #     dai_x = dai_x.cpu()
-    #     dai_y = [torch.tensor(l).cpu() for l in dai_y]
+    #     return crit(dai_batch,dai_y)
 
+    # def show_objects(self, ax, ima, bbox, clas, prs=None, thresh=0.4):
 
-    #     fig, axes = plt.subplots(3, 4, figsize=(16, 12))
-    #     for idx,ax in enumerate(axes.flat):
-    #         ima = dai.denorm_img(dai_x[idx])
-    #         bbox,clas = self.get_y(dai_y[0][idx], dai_y[1][idx])
-    #         a_ic = self.actn_to_bb(dai_b_bb[idx])
-    #         clas_pr, clas_ids = dai_b_clas[idx].max(1)
-    #         clas_pr = clas_pr.sigmoid()
-    #         self.show_objects(ax, ima, a_ic, clas_ids, clas_pr, clas_pr.max().data[0]*thresh)
-    #     plt.tight_layout()  
+    #     return self.show_objects_(ax, ima, ((bbox*self.image_size[0]).long()).numpy(),
+    #         (clas).numpy(), (prs).numpy() if prs is not None else None, thresh)
 
-    def batch_loss(self,model,loader,crit):
-        
-        dai_x,dai_y = next(iter(loader))
-        dai_x = dai_x.to(self.device)
-        dai_y = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in dai_y]
-        dai_batch = model(dai_x)
-        return crit(dai_batch,dai_y)
+    # def show_objects_(self, ax, im, bbox, clas=None, prs=None, thresh=0.3):
 
-    def show_nms(self,loader = None,num = 10,img = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
+    #     ocr_net = data_processing.load_obj('/home/farhan/hamza/Object_Detection/best_cr_resnet34_net.pkl')
+    #     ocr_dp = data_processing.load_obj('/home/farhan/hamza/LPR_OCR/DP_lpr_ocr.pkl')
 
-        if loader:    
-            x,_ = next(iter(loader))
-            batch = self.predict(x)
-            pred_clas,pred_bbox = batch
-            x = x.cpu()
+    #     bb = [bb_hw(o) for o in bbox.reshape(-1,4)]
+    #     # print(bb)
+    #     if prs is None:  prs  = [None]*len(bb)
+    #     if clas is None: clas = [None]*len(bb)
+    #     ax = img_grid(im, ax=ax)
+    #     for i,(b,c,pr) in enumerate(zip(bb, clas, prs)):
+    #         if((b[2]>0) and (pr is None or pr > thresh)):
+    #             draw_rect(ax, b, color=self.colr_list[i % self.num_colr])
+    #             txt = f'{i}: '
+    #             if c is not None: txt += ('bg' if c==len(self.class_names) else self.class_names[c])
+    #             if pr is not None: txt += f' {pr:.2f}'
+    #             draw_text(ax, b[:2], txt, color=self.colr_list[i % self.num_colr])
+    #             # if pr > 0.75:
+    #                 # print(im.shape)
+    #                 # plt.imsave('good_res.png',im)
+    #                 # data_processing.save_obj(b,'good_res.pth')
+    #                 # plt.imshow(im[b[1]:b[1]+b[3]][b[0]:b[0]+b[2]])
+    #                 # plt.show()
+    #             resize_w = 512
+    #             resize_h = 512    
+    #             im_resized = cv2.resize(im,(resize_w,resize_h))
+    #             im_r,im_c = im.shape[0],im.shape[1]
+    #             row_scale = resize_h/im_r
+    #             col_scale = resize_w/im_c
+    #             b[1] = int(np.round(b[1]*row_scale))
+    #             b[3] = int(np.round(b[3]*row_scale))
+    #             b[0] = int(np.round(b[0]*col_scale))
+    #             b[2] = int(np.round(b[2]*col_scale))
+    #             margin = 12
+    #             try:
+    #                 im2 = im_resized[b[1]-margin:b[1]+b[3]+margin,b[0]-margin:b[0]+b[2]+margin]
+    #                 plt.imsave('carlp.png',im2)
+    #             except:
+    #                 im2 = im_resized[b[1]-margin:b[1]+b[3],b[0]-margin:b[0]+b[2]]
+    #                 plt.imsave('carlp.png',im2)
+    #             print(im2.shape)
+    #             chars = get_lp_chars('carlp.png',size = 150,char_width = 7)['char_list']
+    #             plot_in_row(chars,figsize = (8,8))
+    #             for i in chars:
+    #                 print(i.shape)
+    #                 img = get_test_input(imgs = [i],size = (40,40))
+    #                 class_conf = ocr_net.predict(img)[0].max(0)[0]
+    #                 class_id = ocr_net.predict(img)[0].max(0)[1]
+    #                 # print(chr(int(ocr_dp.class_names[class_id])))
+    #                 print(ocr_dp.class_names[class_id], ' ', class_conf)
+    #     del ocr_net
+    #     del ocr_dp
 
-            for i in range(num):
-                print(i)
-                ima = dp.denorm_img(x[i])
-                box_coords = self.actn_to_bb(pred_bbox[i])
-                conf_scores = pred_clas[i].sigmoid().t().data
-                self.show_nms_(ima,box_coords,conf_scores,score_thresh)
-        else:
-            x = img
-            batch = self.predict(x)
-            pred_clas,pred_bbox = batch
-            x = x.cpu()
-            for i in range(len(x)):
-                print(i)
-                ima = dp.denorm_img(x[i])
-                box_coords = self.actn_to_bb(pred_bbox[i])
-                conf_scores = pred_clas[i].sigmoid().t().data
-                self.show_nms_(ima,box_coords,conf_scores,score_thresh)
+    #     return ax
 
-    def show_nms_(self,ima,box_coords,conf_scores,score_thresh = 0.25,nms_overlap = 0.1):
+    # def show_nms(self,loader = None,num = 10,img_batch = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
 
-        out1,out2,cc = [],[],[]
-        for cl in range(0, len(conf_scores)-1):
-            c_mask = conf_scores[cl] > score_thresh
-            if c_mask.sum() == 0: continue
-            scores = conf_scores[cl][c_mask]
-            l_mask = c_mask.unsqueeze(1).expand_as(box_coords)
-            boxes = box_coords[l_mask].view(-1, 4)
-            ids, count = nms(boxes.data, scores, nms_overlap, 50)
-            ids = ids[:count]
-            out1.append(scores[ids])
-            out2.append(boxes.data[ids])
-            cc.append([cl]*count)
-        # return(out1,out2)    
-        if len(cc)> 0:    
-            cc = torch.from_numpy(np.concatenate(cc))
-            out1 = torch.cat(out1).cpu()
-            out2 = torch.cat(out2).cpu()
-            fig, ax = plt.subplots(figsize=(8,8))
-            ax = self.show_objects(ax, ima, out2, cc, out1, score_thresh)
-            plt.show()
-        else:
-            plt.imshow(ima)
-            plt.show()               
+    #     if loader:    
+    #         x,_ = next(iter(loader))
+    #         batch = self.predict(x)
+    #         pred_clas,pred_bbox = batch
+    #         x = x.cpu()
+
+    #         for i in range(num):
+    #             print(i)
+    #             ima = dp.denorm_img(x[i])
+    #             box_coords = self.actn_to_bb(pred_bbox[i])
+    #             conf_scores = pred_clas[i].sigmoid().t().data
+    #             self.show_nms_(ima,box_coords,conf_scores,score_thresh)
+    #     else:
+    #         x = img_batch
+    #         batch = self.predict(x)
+    #         pred_clas,pred_bbox = batch
+    #         x = x.cpu()
+    #         for i in range(len(x)):
+    #             print(i)
+    #             ima = dp.denorm_img(x[i])
+    #             box_coords = self.actn_to_bb(pred_bbox[i])
+    #             conf_scores = pred_clas[i].sigmoid().t().data
+    #             self.show_nms_(ima,box_coords,conf_scores,score_thresh)
+
+    # def show_nms_(self,ima,box_coords,conf_scores,score_thresh = 0.25,nms_overlap = 0.1):
+
+    #     out1,out2,cc = [],[],[]
+    #     for cl in range(0, len(conf_scores)-1):
+    #         c_mask = conf_scores[cl] > score_thresh
+    #         if c_mask.sum() == 0: continue
+    #         scores = conf_scores[cl][c_mask]
+    #         l_mask = c_mask.unsqueeze(1).expand_as(box_coords)
+    #         boxes = box_coords[l_mask].view(-1, 4)
+    #         ids, count = nms(boxes.data, scores, nms_overlap, 50)
+    #         ids = ids[:count]
+    #         out1.append(scores[ids])
+    #         out2.append(boxes.data[ids])
+    #         cc.append([cl]*count)
+    #     # return(out1,out2)    
+    #     if len(cc)> 0:    
+    #         cc = torch.from_numpy(np.concatenate(cc))
+    #         out1 = torch.cat(out1).cpu()
+    #         out2 = torch.cat(out2).cpu()
+    #         fig, ax = plt.subplots(figsize=(8,8))
+    #         ax = self.show_objects(ax, ima, out2, cc, out1, score_thresh)
+    #         plt.show()
+    #     else:
+    #         plt.imshow(ima)
+    #         plt.show()               
 
 class ResNetUnetObjectDetection(TransferNetworkImg):
 

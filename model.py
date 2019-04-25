@@ -60,10 +60,13 @@ class Network(nn.Module):
             batches += 1
             #t1 = time.time()
             inputs = inputs.to(self.device)
-            if self.obj:
-                labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
-                # labels = [torch.tensor(l).to(self.device) for l in labels]
-            else:    
+            try:
+                if self.obj:
+                    labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
+                    # labels = [torch.tensor(l).to(self.device) for l in labels]
+                else:    
+                    labels = labels.to(self.device)
+            except:
                 labels = labels.to(self.device)
             optimizer.zero_grad()
             outputs = self.forward(inputs)
@@ -115,10 +118,13 @@ class Network(nn.Module):
         with torch.no_grad():
             for inputs, labels in dataloader:
                 inputs = inputs.to(self.device)
-                if self.obj:
-                    labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
-                    # labels = [torch.tensor(l).to(self.device) for l in labels]
-                else:    
+                try:
+                    if self.obj:
+                        labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
+                        # labels = [torch.tensor(l).to(self.device) for l in labels]
+                    else:    
+                        labels = labels.to(self.device)
+                except:
                     labels = labels.to(self.device)
                 outputs = self.forward(inputs)
                 # loss = self.criterion(outputs, labels)
@@ -195,10 +201,13 @@ class Network(nn.Module):
             #     labels = labels2 
     
             inputs = inputs.to(self.device)
-            if self.obj:
-                labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
-                # labels = [torch.tensor(l).to(self.device) for l in labels]
-            else:
+            try:
+                if self.obj:
+                    labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
+                    # labels = [torch.tensor(l).to(self.device) for l in labels]
+                else:
+                    labels = labels.to(self.device)
+            except:
                 labels = labels.to(self.device)
             # labels = labels.to(self.device)
             optimizer.zero_grad()

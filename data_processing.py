@@ -133,9 +133,9 @@ def csv_from_path(path, img_dest):
                 name = i.split('/')[-1]
                 label = l.split('/')[-1]
                 new_name = '/{}_'.format(label)+name
-                new_name = '/'.join(i.split('/')[:-2])+new_name
-                os.rename(i,new_name)
-                tr_images.append(new_name)
+                new_path = '/'.join(i.split('/')[:-2])+new_name
+                os.rename(i,new_path)
+                tr_images.append(new_name[1:])
                 tr_labels.append(label)
             os.rmdir(l)    
     tr_img_label = {'Img':tr_images, 'Label': tr_labels}

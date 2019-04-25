@@ -1,10 +1,35 @@
-from collections import defaultdict
-import math
-import torch
-from torch.utils.data.sampler import SubsetRandomSampler,SequentialSampler,BatchSampler
-import numpy as np
-from torch import nn
-import cv2
+from dai_imports import*
+
+def plt_show(im):
+    plt.imshow(im)
+    plt.show()
+
+def plot_in_row(imgs,figsize = (20,20)):
+    fig=plt.figure(figsize=figsize)
+    columns = len(imgs)
+    rows = 1
+    for i in range(1, columns*rows +1):
+        img = imgs[i-1]
+        fig.add_subplot(rows, columns, i)
+        plt.imshow(img)
+    plt.show()    
+
+def get_test_input(paths = [],imgs = [], size = (224,224)):
+    if len(paths) > 0:
+        imgs = []
+        for p in paths:
+            imgs.append(cv2.imread(p))
+    for i,img in enumerate(imgs):        
+        img = cv2.resize(img, size)
+        plt_show(img)
+        img_ =  img[:,:,::-1].transpose((2,0,1))  # BGR -> RGB | H X W C -> C X H X W
+        img_ = (img_ - np.mean(img_))/np.std(img_)
+        # print(img_.shape)
+        # img_ = img_[np.newaxis,:,:,:]/255.0       #Add a channel at 0 (for batch) | Normalise
+        # img_ = torch.from_numpy(img_).float()     #Convert to float
+        imgs[i] = img_
+    return torch.from_numpy(np.asarray(imgs)).float()
+
 
 class Printer(nn.Module):
     def forward(self,x):
@@ -166,11 +191,3 @@ def get_center_delta(features, centers, targets, alpha, device):
     result[uni_targets, :] = delta_centers
     return result
 
-def get_test_input(path = "/home/farhan/Downloads/dog-cycle-car.png",size = (224,224)):
-    img = cv2.imread(path)
-    img = cv2.resize(img, size)          #Resize to the input dimension
-    img_ =  img[:,:,::-1].transpose((2,0,1))  # BGR -> RGB | H X W C -> C X H X W
-    img_ = img_[np.newaxis,:,:,:]/255.0       #Add a channel at 0 (for batch) | Normalise
-    img_ = torch.from_numpy(img_).float()     #Convert to float
-    # img_ = Variable(img_)                     # Convert to Variable
-    return img_
