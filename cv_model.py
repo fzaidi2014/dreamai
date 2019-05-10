@@ -9,6 +9,78 @@ import resnet_unet_2
 import unet_model
 import time
 
+class CNNetwork(Network):
+    def __init__(self,
+                 model = None,
+                 model_name = 'custom_CNN',
+                 model_type='regressor',
+                 lr=0.02,
+                 one_cycle_factor = 0.5,
+                 criterion = nn.NLLLoss(),
+                 optimizer_name = 'sgd',
+                 dropout_p=0.45,
+                 device=None,
+                 best_accuracy=0.,
+                 best_validation_loss=None,
+                 best_model_file ='best_cnn_model.pth',
+                 chkpoint_file ='chkpoint_file.pth',
+                 class_names = [],
+                 num_classes = None,
+                 ):
+
+        super().__init__(device=device)
+
+        self.set_model_params(criterion = criterion,
+                            optimizer_name = optimizer_name,
+                            lr = lr,
+                            one_cycle_factor = one_cycle_factor,
+                            dropout_p = dropout_p,
+                            model_name = model_name,
+                            model_type = model_type,
+                            best_accuracy = best_accuracy,
+                            best_validation_loss = best_validation_loss,
+                            best_model_file = best_model_file,
+                            chkpoint_file = chkpoint_file,
+                            class_names = class_names,
+                            num_classes = num_classes
+                            )
+
+        self.model = model.to(device)
+        
+    def set_model_params(self,criterion,
+                         optimizer_name,
+                         lr,
+                         one_cycle_factor,
+                         dropout_p,
+                         model_name,
+                         model_type,
+                         best_accuracy,
+                         best_validation_loss,
+                         best_model_file,
+                         chkpoint_file,
+                         head,
+                         class_names,
+                         num_classes):
+
+        super(CNNetwork, self).set_model_params(
+                                              criterion = criterion,
+                                              optimizer_name = optimizer_name,
+                                              lr = lr,
+                                              one_cycle_factor = one_cycle_factor,
+                                              dropout_p = dropout_p,
+                                              model_name = model_name,
+                                              model_type = model_type,
+                                              best_accuracy = best_accuracy,
+                                              best_validation_loss = best_validation_loss,
+                                              best_model_file = best_model_file,
+                                              chkpoint_file = chkpoint_file,
+                                              class_names = class_names,
+                                              num_classes = num_classes
+                                              )
+
+    def forward(self,x):
+        return self.model(x)
+                
 class TransferNetworkImg(Network):
     def __init__(self,
                  model_name='DenseNet',
@@ -449,7 +521,8 @@ class FacialRecCenterLoss(TransferNetworkImg):
         running_loss = 0.
         running_classifier_loss = 0.
         running_center_loss = 0.
-        for inputs, labels in trainloader:
+        for data_batch in trainloader:
+            inputs, labels = data_batch[0],data_batch[1]
             batches += 1
             inputs, labels = inputs.to(self.device), labels.to(self.device)
             centers = self.centers
@@ -518,7 +591,8 @@ class FacialRecCenterLoss(TransferNetworkImg):
         self.eval()
         rmse_ = 0.
         with torch.no_grad():
-            for inputs, labels in dataloader:
+            for data_batch in dataloader:
+                inputs,labels = data_batch[0],data_batch[1]
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
                 centers = self.centers
                 # outputs = self.forward(inputs)
@@ -778,7 +852,8 @@ class SSDObjectDetection(TransferNetworkImg):
 
     def batch_loss(self,model,loader,crit):
         
-        dai_x,dai_y = next(iter(loader))
+        data_batch = next(iter(loader))
+        dai_x,dai_y = data_batch[0],data_batch[1]
         dai_x = dai_x.to(self.device)
         dai_y = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in dai_y]
         dai_batch = model(dai_x)
@@ -786,8 +861,9 @@ class SSDObjectDetection(TransferNetworkImg):
 
     def show_nms(self,loader = None,num = 10,img = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
 
-        if loader:    
-            x,_ = next(iter(loader))
+        if loader:
+            data_batch = next(iter(loader))
+            x = data_batch[0]
             batch = self.predict(x)
             pred_clas,pred_bbox = batch
             x = x.cpu()
@@ -1011,245 +1087,722 @@ class CustomSSDObjectDetection(TransferNetworkImg):
         self.custom_head = CustomSSD_MultiHead(len(anc_grids),self.k,num_classes,drop_out,-4.)
         self.loss_f = FocalLoss(num_classes,device=self.device)
 
-    # def create_anchors(self,anc_grids,anc_zooms,anc_ratios):
+    def create_anchors(self,anc_grids,anc_zooms,anc_ratios):
     
-    #     anchor_scales = [(anz*i,anz*j) for anz in anc_zooms for (i,j) in anc_ratios]
-    #     k = len(anchor_scales)
-    #     anc_offsets = [1/(o*2) for o in anc_grids]
-    #     anc_x = np.concatenate([np.repeat(np.linspace(ao, 1-ao, ag), ag)
-    #                             for ao,ag in zip(anc_offsets,anc_grids)])
-    #     anc_y = np.concatenate([np.tile(np.linspace(ao, 1-ao, ag), ag)
-    #                             for ao,ag in zip(anc_offsets,anc_grids)])
-    #     anc_ctrs = np.repeat(np.stack([anc_x,anc_y], axis=1), k, axis=0)
-    #     anc_sizes  =   np.concatenate([np.array([[o/ag,p/ag] for i in range(ag*ag) for o,p in anchor_scales])
-    #                 for ag in anc_grids])
-    #     grid_sizes = torch.tensor(np.concatenate([np.array(
-    #                             [ 1/ag for i in range(ag*ag) for o,p in anchor_scales])
-    #                 for ag in anc_grids])).float().unsqueeze(1).to(self.device)
-    #     anchors = torch.tensor(np.concatenate([anc_ctrs, anc_sizes], axis=1)).float().to(self.device)
-    #     anchor_cnr = hw2corners(anchors[:,:2], anchors[:,2:])
-    #     self.anchors,self.anchor_cnr,self.grid_sizes,self.k = anchors,anchor_cnr,grid_sizes,k
+        anchor_scales = [(anz*i,anz*j) for anz in anc_zooms for (i,j) in anc_ratios]
+        k = len(anchor_scales)
+        anc_offsets = [1/(o*2) for o in anc_grids]
+        anc_x = np.concatenate([np.repeat(np.linspace(ao, 1-ao, ag), ag)
+                                for ao,ag in zip(anc_offsets,anc_grids)])
+        anc_y = np.concatenate([np.tile(np.linspace(ao, 1-ao, ag), ag)
+                                for ao,ag in zip(anc_offsets,anc_grids)])
+        anc_ctrs = np.repeat(np.stack([anc_x,anc_y], axis=1), k, axis=0)
+        anc_sizes  =   np.concatenate([np.array([[o/ag,p/ag] for i in range(ag*ag) for o,p in anchor_scales])
+                    for ag in anc_grids])
+        grid_sizes = torch.tensor(np.concatenate([np.array(
+                                [ 1/ag for i in range(ag*ag) for o,p in anchor_scales])
+                    for ag in anc_grids])).float().unsqueeze(1).to(self.device)
+        anchors = torch.tensor(np.concatenate([anc_ctrs, anc_sizes], axis=1)).float().to(self.device)
+        anchor_cnr = hw2corners(anchors[:,:2], anchors[:,2:])
+        self.anchors,self.anchor_cnr,self.grid_sizes,self.k = anchors,anchor_cnr,grid_sizes,k
 
-    # # def draw_im(im, ann, cats):
-    # #     ax = img_grid(im, figsize=(16,8))
-    # #     for b,c in ann:
-    # #         b = bb_hw(b)
-    # #         draw_rect(ax, b)
-    # #         draw_text(ax, b[:2], cats[c], sz=16)
+    # def draw_im(im, ann, cats):
+    #     ax = img_grid(im, figsize=(16,8))
+    #     for b,c in ann:
+    #         b = bb_hw(b)
+    #         draw_rect(ax, b)
+    #         draw_text(ax, b[:2], cats[c], sz=16)
 
-    # # def draw_idx(i):
-    # #     im_a = trn_anno[i]
-    # # #     im = open_image(IMG_PATH/trn_fns[i])
-    # #     im = Image.open(IMG_PATH/trn_fns[i]).convert('RGB')
-    # #     draw_im(im, im_a)
+    # def draw_idx(i):
+    #     im_a = trn_anno[i]
+    # #     im = open_image(IMG_PATH/trn_fns[i])
+    #     im = Image.open(IMG_PATH/trn_fns[i]).convert('RGB')
+    #     draw_im(im, im_a)
 
-    # def intersect(self,box_a, box_b):
+    def intersect(self,box_a, box_b):
 
-    #     max_xy = torch.min(box_a[:, None, 2:], box_b[None, :, 2:])
-    #     min_xy = torch.max(box_a[:, None, :2], box_b[None, :, :2])
-    #     inter = torch.clamp((max_xy - min_xy), min=0)
-    #     return inter[:, :, 0] * inter[:, :, 1]
+        max_xy = torch.min(box_a[:, None, 2:], box_b[None, :, 2:])
+        min_xy = torch.max(box_a[:, None, :2], box_b[None, :, :2])
+        inter = torch.clamp((max_xy - min_xy), min=0)
+        return inter[:, :, 0] * inter[:, :, 1]
 
-    # def box_sz(self,b): return ((b[:, 2]-b[:, 0]) * (b[:, 3]-b[:, 1]))
+    def box_sz(self,b): return ((b[:, 2]-b[:, 0]) * (b[:, 3]-b[:, 1]))
 
-    # def jaccard(self,box_a, box_b):
+    def jaccard(self,box_a, box_b):
 
-    #     inter = self.intersect(box_a, box_b)
-    #     union = self.box_sz(box_a).unsqueeze(1) + self.box_sz(box_b).unsqueeze(0) - inter
-    #     return inter / union
+        inter = self.intersect(box_a, box_b)
+        union = self.box_sz(box_a).unsqueeze(1) + self.box_sz(box_b).unsqueeze(0) - inter
+        return inter / union
 
-    # def get_y(self, bbox, clas):
+    def get_y(self, bbox, clas):
 
-    #     bbox = bbox.view(-1,4)/self.image_size[0]
-    #     bb_keep = ((bbox[:,2]-bbox[:,0])>0).nonzero()[:,0]
-    #     return bbox[bb_keep],clas[bb_keep]
+        bbox = bbox.view(-1,4)/self.image_size[0]
+        bb_keep = ((bbox[:,2]-bbox[:,0])>0).nonzero()[:,0]
+        return bbox[bb_keep],clas[bb_keep]
 
-    # def actn_to_bb(self, actn):
-    #     actn_bbs = torch.tanh(actn)
-    #     # print(self.grid_sizes.size())
-    #     # print(self.anchors[:,:2].size())
-    #     actn_centers = (actn_bbs[:,:2]/2 * self.grid_sizes) + self.anchors[:,:2]
-    #     actn_hw = (actn_bbs[:,2:]/2+1) * self.anchors[:,2:]
-    #     return hw2corners(actn_centers, actn_hw)
+    def actn_to_bb(self, actn):
+        actn_bbs = torch.tanh(actn)
+        # print(self.grid_sizes.size())
+        # print(self.anchors[:,:2].size())
+        actn_centers = (actn_bbs[:,:2]/2 * self.grid_sizes) + self.anchors[:,:2]
+        actn_hw = (actn_bbs[:,2:]/2+1) * self.anchors[:,2:]
+        return hw2corners(actn_centers, actn_hw)
 
-    # def map_to_ground_truth(self, overlaps, print_it=False):
+    def map_to_ground_truth(self, overlaps, print_it=False):
 
-    #     prior_overlap, prior_idx = overlaps.max(1)
-    # #     if print_it: print(prior_overlap)
-    #     gt_overlap, gt_idx = overlaps.max(0)
-    #     gt_overlap[prior_idx] = 1.99
-    #     for i,o in enumerate(prior_idx): gt_idx[o] = i
-    #     return gt_overlap,gt_idx
+        prior_overlap, prior_idx = overlaps.max(1)
+    #     if print_it: print(prior_overlap)
+        gt_overlap, gt_idx = overlaps.max(0)
+        gt_overlap[prior_idx] = 1.99
+        for i,o in enumerate(prior_idx): gt_idx[o] = i
+        return gt_overlap,gt_idx
 
-    # def ssd_1_loss(self, b_c,b_bb,bbox,clas,print_it=False):
+    def ssd_1_loss(self, b_c,b_bb,bbox,clas,print_it=False):
 
-    #     anchor_cnr = hw2corners(self.anchors[:,:2], self.anchors[:,2:])
-    #     bbox,clas = self.get_y(bbox,clas)
-    #     a_ic = self.actn_to_bb(b_bb)
-    #     overlaps = self.jaccard(bbox.data, anchor_cnr.data)
-    #     gt_overlap,gt_idx = self.map_to_ground_truth(overlaps,print_it)
-    #     gt_clas = clas[gt_idx]
-    #     pos = gt_overlap > 0.4
-    #     pos_idx = torch.nonzero(pos)[:,0]
-    #     gt_clas[1-pos] = len(self.class_names)
-    #     gt_bbox = bbox[gt_idx]
-    #     loc_loss = ((a_ic[pos_idx] - gt_bbox[pos_idx]).abs()).mean()
-    #     clas_loss  = self.loss_f(b_c, gt_clas)
-    #     return loc_loss, clas_loss
+        anchor_cnr = hw2corners(self.anchors[:,:2], self.anchors[:,2:])
+        bbox,clas = self.get_y(bbox,clas)
+        a_ic = self.actn_to_bb(b_bb)
+        overlaps = self.jaccard(bbox.data, anchor_cnr.data)
+        gt_overlap,gt_idx = self.map_to_ground_truth(overlaps,print_it)
+        gt_clas = clas[gt_idx]
+        pos = gt_overlap > 0.4
+        pos_idx = torch.nonzero(pos)[:,0]
+        gt_clas[1-pos] = len(self.class_names)
+        gt_bbox = bbox[gt_idx]
+        loc_loss = ((a_ic[pos_idx] - gt_bbox[pos_idx]).abs()).mean()
+        clas_loss  = self.loss_f(b_c, gt_clas)
+        return loc_loss, clas_loss
 
-    # def ssd_loss(self, pred, targ, print_it=False):
+    def ssd_loss(self, pred, targ, print_it=False):
 
-    #     lcs,lls = 0.,0.
-    #     for b_c,b_bb,bbox,clas in zip(*pred,*targ):
-    #         loc_loss,clas_loss = self.ssd_1_loss(b_c,b_bb,bbox,clas)
-    #         lls += loc_loss
-    #         lcs += clas_loss
-    #     if print_it: print(f'loc: {lls.data[0]}, clas: {lcs.data[0]}')
-    #     return lls+lcs
+        lcs,lls = 0.,0.
+        for b_c,b_bb,bbox,clas in zip(*pred,*targ):
+            loc_loss,clas_loss = self.ssd_1_loss(b_c,b_bb,bbox,clas)
+            lls += loc_loss
+            lcs += clas_loss
+        if print_it: print(f'loc: {lls.data[0]}, clas: {lcs.data[0]}')
+        return lls+lcs
 
-    # def set_loss(self,loss):
-    #     self.loss_f = loss    
+    def set_loss(self,loss):
+        self.loss_f = loss    
 
-    # # def dai_plot_results(self,thresh,loader,model):
+    # def dai_plot_results(self,thresh,loader,model):
     
-    # #     dai_x,dai_y = next(iter(loader))
-    # #     dai_x = dai_x.to(self.device)
-    # #     dai_y = [torch.tensor(l).to(self.device) for l in dai_y]
-    # #     dai_batch = model(dai_x)
-    # #     dai_b_clas,dai_b_bb = dai_batch
-    # #     dai_x = dai_x.cpu()
-    # #     dai_y = [torch.tensor(l).cpu() for l in dai_y]
-
-
-    # #     fig, axes = plt.subplots(3, 4, figsize=(16, 12))
-    # #     for idx,ax in enumerate(axes.flat):
-    # #         ima = dai.denorm_img(dai_x[idx])
-    # #         bbox,clas = self.get_y(dai_y[0][idx], dai_y[1][idx])
-    # #         a_ic = self.actn_to_bb(dai_b_bb[idx])
-    # #         clas_pr, clas_ids = dai_b_clas[idx].max(1)
-    # #         clas_pr = clas_pr.sigmoid()
-    # #         self.show_objects(ax, ima, a_ic, clas_ids, clas_pr, clas_pr.max().data[0]*thresh)
-    # #     plt.tight_layout()  
-
-    # def batch_loss(self,model,loader,crit):
-        
     #     dai_x,dai_y = next(iter(loader))
     #     dai_x = dai_x.to(self.device)
-    #     dai_y = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in dai_y]
+    #     dai_y = [torch.tensor(l).to(self.device) for l in dai_y]
     #     dai_batch = model(dai_x)
-    #     return crit(dai_batch,dai_y)
+    #     dai_b_clas,dai_b_bb = dai_batch
+    #     dai_x = dai_x.cpu()
+    #     dai_y = [torch.tensor(l).cpu() for l in dai_y]
 
-    # def show_objects(self, ax, ima, bbox, clas, prs=None, thresh=0.4):
 
-    #     return self.show_objects_(ax, ima, ((bbox*self.image_size[0]).long()).numpy(),
-    #         (clas).numpy(), (prs).numpy() if prs is not None else None, thresh)
+    #     fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    #     for idx,ax in enumerate(axes.flat):
+    #         ima = dai.denorm_img(dai_x[idx])
+    #         bbox,clas = self.get_y(dai_y[0][idx], dai_y[1][idx])
+    #         a_ic = self.actn_to_bb(dai_b_bb[idx])
+    #         clas_pr, clas_ids = dai_b_clas[idx].max(1)
+    #         clas_pr = clas_pr.sigmoid()
+    #         self.show_objects(ax, ima, a_ic, clas_ids, clas_pr, clas_pr.max().data[0]*thresh)
+    #     plt.tight_layout()  
 
-    # def show_objects_(self, ax, im, bbox, clas=None, prs=None, thresh=0.3):
+    def batch_loss(self,model,loader,crit):
+        
+        data_batch = next(iter(loader))
+        dai_x,dai_y = data_batch[0],data_batch[1]
+        dai_x = dai_x.to(self.device)
+        dai_y = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in dai_y]
+        dai_batch = model(dai_x)
+        return crit(dai_batch,dai_y)
 
-    #     ocr_net = data_processing.load_obj('/home/farhan/hamza/Object_Detection/best_cr_resnet34_net.pkl')
-    #     ocr_dp = data_processing.load_obj('/home/farhan/hamza/LPR_OCR/DP_lpr_ocr.pkl')
+    def show_objects(self, ax, ima, bbox, clas, prs=None, thresh=0.4):
 
-    #     bb = [bb_hw(o) for o in bbox.reshape(-1,4)]
-    #     # print(bb)
-    #     if prs is None:  prs  = [None]*len(bb)
-    #     if clas is None: clas = [None]*len(bb)
-    #     ax = img_grid(im, ax=ax)
-    #     for i,(b,c,pr) in enumerate(zip(bb, clas, prs)):
-    #         if((b[2]>0) and (pr is None or pr > thresh)):
-    #             draw_rect(ax, b, color=self.colr_list[i % self.num_colr])
-    #             txt = f'{i}: '
-    #             if c is not None: txt += ('bg' if c==len(self.class_names) else self.class_names[c])
-    #             if pr is not None: txt += f' {pr:.2f}'
-    #             draw_text(ax, b[:2], txt, color=self.colr_list[i % self.num_colr])
-    #             # if pr > 0.75:
-    #                 # print(im.shape)
-    #                 # plt.imsave('good_res.png',im)
-    #                 # data_processing.save_obj(b,'good_res.pth')
-    #                 # plt.imshow(im[b[1]:b[1]+b[3]][b[0]:b[0]+b[2]])
-    #                 # plt.show()
-    #             resize_w = 512
-    #             resize_h = 512    
-    #             im_resized = cv2.resize(im,(resize_w,resize_h))
-    #             im_r,im_c = im.shape[0],im.shape[1]
-    #             row_scale = resize_h/im_r
-    #             col_scale = resize_w/im_c
-    #             b[1] = int(np.round(b[1]*row_scale))
-    #             b[3] = int(np.round(b[3]*row_scale))
-    #             b[0] = int(np.round(b[0]*col_scale))
-    #             b[2] = int(np.round(b[2]*col_scale))
-    #             margin = 12
-    #             try:
-    #                 im2 = im_resized[b[1]-margin:b[1]+b[3]+margin,b[0]-margin:b[0]+b[2]+margin]
-    #                 plt.imsave('carlp.png',im2)
-    #             except:
-    #                 im2 = im_resized[b[1]-margin:b[1]+b[3],b[0]-margin:b[0]+b[2]]
-    #                 plt.imsave('carlp.png',im2)
-    #             print(im2.shape)
-    #             chars = get_lp_chars('carlp.png',size = 150,char_width = 7)['char_list']
-    #             plot_in_row(chars,figsize = (8,8))
-    #             for i in chars:
-    #                 print(i.shape)
-    #                 img = get_test_input(imgs = [i],size = (40,40))
-    #                 class_conf = ocr_net.predict(img)[0].max(0)[0]
-    #                 class_id = ocr_net.predict(img)[0].max(0)[1]
-    #                 # print(chr(int(ocr_dp.class_names[class_id])))
-    #                 print(ocr_dp.class_names[class_id], ' ', class_conf)
-    #     del ocr_net
-    #     del ocr_dp
+        return self.show_objects_(ax, ima, ((bbox*self.image_size[0]).long()).numpy(),
+            (clas).numpy(), (prs).numpy() if prs is not None else None, thresh)
 
-    #     return ax
+    def show_objects_(self, ax, im, bbox, clas=None, prs=None, thresh=0.3):
 
-    # def show_nms(self,loader = None,num = 10,img_batch = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
+        bb = [bb_hw(o) for o in bbox.reshape(-1,4)]
+        # print(bb)
+        if prs is None:  prs  = [None]*len(bb)
+        if clas is None: clas = [None]*len(bb)
+        ax = img_grid(im, ax=ax)
+        for i,(b,c,pr) in enumerate(zip(bb, clas, prs)):
+            if((b[2]>0) and (pr is None or pr > thresh)):
+                draw_rect(ax, b, color=self.colr_list[i % self.num_colr])
+                txt = f'{i}: '
+                if c is not None: txt += ('bg' if c==len(self.class_names) else self.class_names[c])
+                if pr is not None: txt += f' {pr:.2f}'
+                draw_text(ax, b[:2], txt, color=self.colr_list[i % self.num_colr])
+                # if pr > 0.75:
+                    # print(im.shape)
+                    # plt.imsave('good_res.png',im)
+                    # data_processing.save_obj(b,'good_res.pth')
+                    # plt.imshow(im[b[1]:b[1]+b[3]][b[0]:b[0]+b[2]])
+                    # plt.show()
+        #         resize_w = 512
+        #         resize_h = 512    
+        #         im_resized = cv2.resize(im,(resize_w,resize_h))
+        #         im_r,im_c = im.shape[0],im.shape[1]
+        #         row_scale = resize_h/im_r
+        #         col_scale = resize_w/im_c
+        #         b[1] = int(np.round(b[1]*row_scale))
+        #         b[3] = int(np.round(b[3]*row_scale))
+        #         b[0] = int(np.round(b[0]*col_scale))
+        #         b[2] = int(np.round(b[2]*col_scale))
+        #         margin = 12
+        #         try:
+        #             im2 = im_resized[b[1]-margin:b[1]+b[3]+margin,b[0]-margin:b[0]+b[2]+margin]
+        #             plt.imsave('carlp.png',im2)
+        #         except:
+        #             im2 = im_resized[b[1]-margin:b[1]+b[3],b[0]-margin:b[0]+b[2]]
+        #             plt.imsave('carlp.png',im2)
+        #         print(im2.shape)
+        #         chars = get_lp_chars('carlp.png',size = 150,char_width = 7)['char_list']
+        #         plot_in_row(chars,figsize = (8,8))
+        #         for i in chars:
+        #             print(i.shape)
+        #             img = get_test_input(imgs = [i],size = (40,40))
+        #             class_conf = ocr_net.predict(img)[0].max(0)[0]
+        #             class_id = ocr_net.predict(img)[0].max(0)[1]
+        #             print(chr(int(ocr_dp.class_names[class_id])))
+        #             # print(ocr_dp.class_names[class_id], ' ', class_conf)
+        # del ocr_net
+        # del ocr_dp
 
-    #     if loader:    
-    #         x,_ = next(iter(loader))
-    #         batch = self.predict(x)
-    #         pred_clas,pred_bbox = batch
-    #         x = x.cpu()
+        return ax
 
-    #         for i in range(num):
-    #             print(i)
-    #             ima = dp.denorm_img(x[i])
-    #             box_coords = self.actn_to_bb(pred_bbox[i])
-    #             conf_scores = pred_clas[i].sigmoid().t().data
-    #             self.show_nms_(ima,box_coords,conf_scores,score_thresh)
-    #     else:
-    #         x = img_batch
-    #         batch = self.predict(x)
-    #         pred_clas,pred_bbox = batch
-    #         x = x.cpu()
-    #         for i in range(len(x)):
-    #             print(i)
-    #             ima = dp.denorm_img(x[i])
-    #             box_coords = self.actn_to_bb(pred_bbox[i])
-    #             conf_scores = pred_clas[i].sigmoid().t().data
-    #             self.show_nms_(ima,box_coords,conf_scores,score_thresh)
+    def show_nms(self,loader = None,num = 10,img_batch = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
 
-    # def show_nms_(self,ima,box_coords,conf_scores,score_thresh = 0.25,nms_overlap = 0.1):
+        if loader:    
+            x = next(iter(loader))[0]
+            batch = self.predict(x)
+            pred_clas,pred_bbox = batch
+            x = x.cpu()
+        else:
+            x = img_batch
+            batch = self.predict(x)
+            pred_clas,pred_bbox = batch
+            x = x.cpu()
+            num = len(x)
 
-    #     out1,out2,cc = [],[],[]
-    #     for cl in range(0, len(conf_scores)-1):
-    #         c_mask = conf_scores[cl] > score_thresh
-    #         if c_mask.sum() == 0: continue
-    #         scores = conf_scores[cl][c_mask]
-    #         l_mask = c_mask.unsqueeze(1).expand_as(box_coords)
-    #         boxes = box_coords[l_mask].view(-1, 4)
-    #         ids, count = nms(boxes.data, scores, nms_overlap, 50)
-    #         ids = ids[:count]
-    #         out1.append(scores[ids])
-    #         out2.append(boxes.data[ids])
-    #         cc.append([cl]*count)
-    #     # return(out1,out2)    
-    #     if len(cc)> 0:    
-    #         cc = torch.from_numpy(np.concatenate(cc))
-    #         out1 = torch.cat(out1).cpu()
-    #         out2 = torch.cat(out2).cpu()
-    #         fig, ax = plt.subplots(figsize=(8,8))
-    #         ax = self.show_objects(ax, ima, out2, cc, out1, score_thresh)
-    #         plt.show()
-    #     else:
-    #         plt.imshow(ima)
-    #         plt.show()               
+        for i in range(num):
+            print(i)
+            ima = x[i]
+            if dp:
+                ima = dp.denorm_img(ima)
+            else:
+                ima = denorm_img_general(ima)
+
+            box_coords = self.actn_to_bb(pred_bbox[i])
+            conf_scores = pred_clas[i].sigmoid().t().data
+            self.show_nms_(ima,box_coords,conf_scores,score_thresh)
+
+    def show_nms_(self,ima,box_coords,conf_scores,score_thresh = 0.25,nms_overlap = 0.1):
+
+        out1,out2,cc = [],[],[]
+        for cl in range(0, len(conf_scores)-1):
+            c_mask = conf_scores[cl] > score_thresh
+            if c_mask.sum() == 0: continue
+            scores = conf_scores[cl][c_mask]
+            l_mask = c_mask.unsqueeze(1).expand_as(box_coords)
+            boxes = box_coords[l_mask].view(-1, 4)
+            ids, count = nms(boxes.data, scores, nms_overlap, 50)
+            ids = ids[:count]
+            out1.append(scores[ids])
+            out2.append(boxes.data[ids])
+            cc.append([cl]*count)
+        # return(out1,out2)    
+        if len(cc)> 0:    
+            cc = torch.from_numpy(np.concatenate(cc))
+            out1 = torch.cat(out1).cpu()
+            out2 = torch.cat(out2).cpu()
+            fig, ax = plt.subplots(figsize=(8,8))
+            ax = self.show_objects(ax, ima, out2, cc, out1, score_thresh)
+            plt.show()
+        else:
+            plt.imshow(ima)
+            plt.show()               
+
+class CustomSSDObjectDetection_LPR(TransferNetworkImg):
+    def __init__(self,
+                 model_name='resnet50',
+                 model_type='obj_detection',
+                 lr=0.02,
+                 one_cycle_factor = 0.5,
+                 criterion= nn.NLLLoss(),
+                 optimizer_name = 'Adam',
+                 dropout_p=0.45,
+                 pretrained=True,
+                 device=None,
+                 best_accuracy=0.,
+                 best_validation_loss=None,
+                 best_model_file ='best_custom_ssd.pth',
+                 chkpoint_file ='cusstom_ssd_chkpoint_file.pth',
+                 head = {'num_outputs':10,
+                    'layers':[],
+                    'model_type':'classifier'
+                 },
+                 pre_trained_back = None,
+                 add_extra = True,
+                 class_names = None,
+                 num_classes = None,
+                 image_size = (224,224)):
+        super().__init__(model_name = model_name,
+                 model_type = model_type,
+                 lr = lr,
+                 one_cycle_factor = one_cycle_factor,
+                 criterion = criterion,
+                 optimizer_name = optimizer_name,
+                 dropout_p = dropout_p,
+                 pretrained = pretrained,
+                 device = device,
+                 best_accuracy = best_accuracy,
+                 best_validation_loss = best_validation_loss, 
+                 best_model_file = best_model_file,
+                 chkpoint_file = chkpoint_file,
+                 head = head,
+                 add_extra = add_extra,
+                 set_params = False,
+                 class_names = class_names,
+                 num_classes = num_classes,
+                 set_head = False)
+
+        self.obj = True
+        self.image_size = image_size
+        grids = get_grids(image_size,ceil = self.grid_ceil)
+        print('Grids: {}'.format(grids))
+        self.set_up_object_detection(anc_grids=grids, anc_zooms=[0.7,1.,1.3], anc_ratios=[(1.,1.),(1.,0.5),(0.5,1.)],
+                                    num_classes=num_classes,drop_out=dropout_p)          
+        self.set_model_head(model_name = model_name, head = self.custom_head,pre_trained_back = pre_trained_back)
+        super(CustomSSDObjectDetection_LPR,self).set_model_params(
+                                              criterion = self.ssd_loss,
+                                              optimizer_name = optimizer_name,
+                                              lr = lr,
+                                              one_cycle_factor = one_cycle_factor,
+                                              dropout_p = dropout_p,
+                                              model_name = model_name,
+                                              model_type = model_type,
+                                              best_accuracy = best_accuracy,
+                                              best_validation_loss = best_validation_loss,
+                                              best_model_file = best_model_file,
+                                              chkpoint_file = chkpoint_file,
+                                              head = head,
+                                              class_names = class_names,
+                                              num_classes = num_classes
+                                              )
+        self.model = self.model.to(device)
+
+    def set_model_head(self,
+                        model_name = 'resnet50',
+                        head = {'num_outputs':10,
+                                'layers':[],
+                                'class_names': None,
+                                'model_type':'classifier'
+                               },
+                        pre_trained_back = None,
+                        criterion = nn.NLLLoss(),  
+                        adaptive = True,       
+                        dropout_p = 0.45,
+                        device = None):
+
+        # models_meta = {
+        # 'resnet': {'head_id': -2, 'adaptive_head': [DAI_AvgPool,Flatten()],'normal_head': [nn.AvgPool2d(7,1),Flatten()]},
+        # 'densenet': {'head_id': -1,'adaptive_head': [nn.ReLU(inplace=True),DAI_AvgPool,Flatten()]
+        #             ,'normal_head': [nn.ReLU(inplace=True),nn.AvgPool2d(7,1),Flatten()]}
+        # }
+
+        models_meta = {
+        'resnet34': {'conv_channels':512,'head_id': -2,'clip_func':resnet_obj_clip,'adaptive_head': [DAI_AvgPool],
+                    'normal_head': [nn.AvgPool2d(7,1)]},
+        'resnet50': {'conv_channels':2048,'head_id': -2,'clip_func':resnet_obj_clip,'adaptive_head': [DAI_AvgPool],
+                    'normal_head': [nn.AvgPool2d(7,1)]},
+        'densenet': {'conv_channels':1024,'head_id': -1,'clip_func':densenet_obj_clip,'adaptive_head': [nn.ReLU(inplace=True),DAI_AvgPool]
+                    ,'normal_head': [nn.ReLU(inplace=True),nn.AvgPool2d(7,1)]}
+        }
+
+        # name = ''.join([x for x in model_name.lower() if x.isalpha()])
+        name = model_name.lower()
+        meta = models_meta[name]
+        if pre_trained_back:
+            model = pre_trained_back
+        else:    
+            modules = list(self.model.children())
+            # l = meta['clip_func'](modules,meta['head_id'])
+            l = modules[:meta['head_id']]
+            if self.dream_model:
+                # for layer in self.dream_model.children():
+                #     if(type(layer).__name__) == 'Conv2d':
+                #         layer.in_channels,layer.out_channels = meta['conv_channels'],meta['conv_channels']
+                #     if(type(layer).__name__) == 'BatchNorm2d':
+                #         layer.num_features = meta['conv_channels']
+                # self.dream_model[0].in_channels = meta['conv_channels']
+                # self.dream_model[-4].out_channels = meta['conv_channels']
+                # self.dream_model[-3].num_features = meta['conv_channels']
+                l+=self.dream_model
+
+            # if type(head).__name__ != 'dict':
+            model = nn.Sequential(*l)
+        for layer in head.children():
+            if(type(layer).__name__) == 'StdConv':
+                conv_module = layer
+                break
+        # temp_conv = head.sconv0.conv
+        conv_layer = conv_module.conv
+        temp_args = [conv_layer.out_channels,conv_layer.kernel_size,conv_layer.stride,conv_layer.padding]
+        temp_args.insert(0,meta['conv_channels'])
+        conv_layer = nn.Conv2d(*temp_args)
+        conv_module.conv = conv_layer
+        # print(head)
+        # model.add_module('adaptive_avg_pool',DAI_AvgPool)
+        model.add_module('custom_head',head)
+        # else:
+        #     head['criterion'] = criterion
+        #     self.num_outputs = head['num_outputs']
+        #     fc = modules[-1]
+        #     in_features =  fc.in_features
+        #     fc = FC(
+        #             num_inputs = in_features,
+        #             num_outputs = head['num_outputs'],
+        #             layers = head['layers'],
+        #             model_type = head['model_type'],
+        #             output_non_linearity = head['output_non_linearity'],
+        #             dropout_p = dropout_p,
+        #             criterion = head['criterion'],
+        #             optimizer_name = None,
+        #             device = device
+        #             )
+        #     if adaptive:
+        #         l += meta['adaptive_head']
+        #     else:
+        #         l += meta['normal_head']
+        #     model = nn.Sequential(*l)
+        #     model.add_module('fc',fc)
+        self.model = model
+        self.head = head
+        
+        # if type(head).__name__ == 'dict':
+        #     print('{}: setting head: inputs: {} hidden:{} outputs: {}'.format(model_name,
+        #                                                                   in_features,
+        #                                                                   head['layers'],
+        #                                                                   head['num_outputs']))
+        # else:
+        print('{}: setting head: {}'.format(model_name,type(head).__name__))    
+
+    def set_up_object_detection(self,anc_grids,anc_zooms,anc_ratios,num_classes,num_colr = 12,drop_out = 0.5):
+
+        # print('Would you like to give your own values for anchor_grids, anchor_zooms,and anchor_ratios? The default values are: {}, {} and {}'
+        # .format(anc_grids,anc_zooms,anc_ratios))
+        # print('If so, you may call the function "set_up_object_detection" with your own paramteres.')
+
+        cmap = get_cmap(num_colr)
+        self.colr_list = [cmap(float(x)) for x in range(num_colr)]
+        self.num_colr = num_colr
+        self.create_anchors(anc_grids,anc_zooms,anc_ratios)
+        self.custom_head = CustomSSD_MultiHead(len(anc_grids),self.k,num_classes,drop_out,-4.)
+        self.loss_f = FocalLoss(num_classes,device=self.device)
+
+    def create_anchors(self,anc_grids,anc_zooms,anc_ratios):
+    
+        anchor_scales = [(anz*i,anz*j) for anz in anc_zooms for (i,j) in anc_ratios]
+        k = len(anchor_scales)
+        anc_offsets = [1/(o*2) for o in anc_grids]
+        anc_x = np.concatenate([np.repeat(np.linspace(ao, 1-ao, ag), ag)
+                                for ao,ag in zip(anc_offsets,anc_grids)])
+        anc_y = np.concatenate([np.tile(np.linspace(ao, 1-ao, ag), ag)
+                                for ao,ag in zip(anc_offsets,anc_grids)])
+        anc_ctrs = np.repeat(np.stack([anc_x,anc_y], axis=1), k, axis=0)
+        anc_sizes  =   np.concatenate([np.array([[o/ag,p/ag] for i in range(ag*ag) for o,p in anchor_scales])
+                    for ag in anc_grids])
+        grid_sizes = torch.tensor(np.concatenate([np.array(
+                                [ 1/ag for i in range(ag*ag) for o,p in anchor_scales])
+                    for ag in anc_grids])).float().unsqueeze(1).to(self.device)
+        anchors = torch.tensor(np.concatenate([anc_ctrs, anc_sizes], axis=1)).float().to(self.device)
+        anchor_cnr = hw2corners(anchors[:,:2], anchors[:,2:])
+        self.anchors,self.anchor_cnr,self.grid_sizes,self.k = anchors,anchor_cnr,grid_sizes,k
+
+    # def draw_im(im, ann, cats):
+    #     ax = img_grid(im, figsize=(16,8))
+    #     for b,c in ann:
+    #         b = bb_hw(b)
+    #         draw_rect(ax, b)
+    #         draw_text(ax, b[:2], cats[c], sz=16)
+
+    # def draw_idx(i):
+    #     im_a = trn_anno[i]
+    # #     im = open_image(IMG_PATH/trn_fns[i])
+    #     im = Image.open(IMG_PATH/trn_fns[i]).convert('RGB')
+    #     draw_im(im, im_a)
+
+    def intersect(self,box_a, box_b):
+
+        max_xy = torch.min(box_a[:, None, 2:], box_b[None, :, 2:])
+        min_xy = torch.max(box_a[:, None, :2], box_b[None, :, :2])
+        inter = torch.clamp((max_xy - min_xy), min=0)
+        return inter[:, :, 0] * inter[:, :, 1]
+
+    def box_sz(self,b): return ((b[:, 2]-b[:, 0]) * (b[:, 3]-b[:, 1]))
+
+    def jaccard(self,box_a, box_b):
+
+        inter = self.intersect(box_a, box_b)
+        union = self.box_sz(box_a).unsqueeze(1) + self.box_sz(box_b).unsqueeze(0) - inter
+        return inter / union
+
+    def get_y(self, bbox, clas):
+
+        bbox = bbox.view(-1,4)/self.image_size[0]
+        bb_keep = ((bbox[:,2]-bbox[:,0])>0).nonzero()[:,0]
+        return bbox[bb_keep],clas[bb_keep]
+
+    def actn_to_bb(self, actn):
+        actn_bbs = torch.tanh(actn)
+        # print(self.grid_sizes.size())
+        # print(self.anchors[:,:2].size())
+        actn_centers = (actn_bbs[:,:2]/2 * self.grid_sizes) + self.anchors[:,:2]
+        actn_hw = (actn_bbs[:,2:]/2+1) * self.anchors[:,2:]
+        return hw2corners(actn_centers, actn_hw)
+
+    def map_to_ground_truth(self, overlaps, print_it=False):
+
+        prior_overlap, prior_idx = overlaps.max(1)
+    #     if print_it: print(prior_overlap)
+        gt_overlap, gt_idx = overlaps.max(0)
+        gt_overlap[prior_idx] = 1.99
+        for i,o in enumerate(prior_idx): gt_idx[o] = i
+        return gt_overlap,gt_idx
+
+    def ssd_1_loss(self, b_c,b_bb,bbox,clas,print_it=False):
+
+        anchor_cnr = hw2corners(self.anchors[:,:2], self.anchors[:,2:])
+        bbox,clas = self.get_y(bbox,clas)
+        a_ic = self.actn_to_bb(b_bb)
+        overlaps = self.jaccard(bbox.data, anchor_cnr.data)
+        gt_overlap,gt_idx = self.map_to_ground_truth(overlaps,print_it)
+        gt_clas = clas[gt_idx]
+        pos = gt_overlap > 0.4
+        pos_idx = torch.nonzero(pos)[:,0]
+        gt_clas[1-pos] = len(self.class_names)
+        gt_bbox = bbox[gt_idx]
+        loc_loss = ((a_ic[pos_idx] - gt_bbox[pos_idx]).abs()).mean()
+        clas_loss  = self.loss_f(b_c, gt_clas)
+        return loc_loss, clas_loss
+
+    def ssd_loss(self, pred, targ, print_it=False):
+
+        lcs,lls = 0.,0.
+        for b_c,b_bb,bbox,clas in zip(*pred,*targ):
+            loc_loss,clas_loss = self.ssd_1_loss(b_c,b_bb,bbox,clas)
+            lls += loc_loss
+            lcs += clas_loss
+        if print_it: print(f'loc: {lls.data[0]}, clas: {lcs.data[0]}')
+        return lls+lcs
+
+    def set_loss(self,loss):
+        self.loss_f = loss    
+
+    # def dai_plot_results(self,thresh,loader,model):
+    
+    #     dai_x,dai_y = next(iter(loader))
+    #     dai_x = dai_x.to(self.device)
+    #     dai_y = [torch.tensor(l).to(self.device) for l in dai_y]
+    #     dai_batch = model(dai_x)
+    #     dai_b_clas,dai_b_bb = dai_batch
+    #     dai_x = dai_x.cpu()
+    #     dai_y = [torch.tensor(l).cpu() for l in dai_y]
+
+
+    #     fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+    #     for idx,ax in enumerate(axes.flat):
+    #         ima = dai.denorm_img(dai_x[idx])
+    #         bbox,clas = self.get_y(dai_y[0][idx], dai_y[1][idx])
+    #         a_ic = self.actn_to_bb(dai_b_bb[idx])
+    #         clas_pr, clas_ids = dai_b_clas[idx].max(1)
+    #         clas_pr = clas_pr.sigmoid()
+    #         self.show_objects(ax, ima, a_ic, clas_ids, clas_pr, clas_pr.max().data[0]*thresh)
+    #     plt.tight_layout()  
+
+    def batch_loss(self,model,loader,crit):
+        
+        data_batch = next(iter(loader))
+        dai_x,dai_y = data_batch[0],data_batch[1]
+        dai_x = dai_x.to(self.device)
+        dai_y = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in dai_y]
+        dai_batch = model(dai_x)
+        return crit(dai_batch,dai_y)
+
+    def show_objects(self, ax, y, num_plate, ima, bbox, clas, prs=None, thresh=0.4,ocr_net=None,ocr_dp=None):
+
+        return self.show_objects_(ax, y, num_plate, ima, ((bbox*self.image_size[0]).long()).numpy(),
+            (clas).numpy(), (prs).numpy() if prs is not None else None, thresh,ocr_net=ocr_net,ocr_dp=ocr_dp)
+
+    def show_objects_(self, ax, y, num_plate, im, bbox, clas=None, prs=None, thresh=0.3,ocr_net=None,ocr_dp=None):
+
+        # ocr_net = data_processing.load_obj('/home/farhan/hamza/Object_Detection/best_lpr_chars_net.pkl')
+        # ocr_dp = data_processing.load_obj('/home/farhan/hamza/lpr_chars/DP_lpr_chars.pkl')
+        bb = [bb_hw(o) for o in bbox.reshape(-1,4)]
+        # print(bb)
+        if prs is None:  prs  = [None]*len(bb)
+        if clas is None: clas = [None]*len(bb)
+        ax = img_grid(im, ax=ax)
+        for i,(b,c,pr) in enumerate(zip(bb, clas, prs)):
+            if((b[2]>0) and (pr is None or pr > thresh)):
+                draw_rect(ax, b, color=self.colr_list[i % self.num_colr])
+                txt = f'{i}: '
+                if c is not None: txt += ('bg' if c==len(self.class_names) else self.class_names[c])
+                if pr is not None: txt += f' {pr:.2f}'
+                draw_text(ax, b[:2], txt, color=self.colr_list[i % self.num_colr])
+                resize_w = 512
+                resize_h = 512    
+                im_resized = cv2.resize(im,(resize_w,resize_h))
+                im_r,im_c = im.shape[0],im.shape[1]
+                row_scale = resize_h/im_r
+                col_scale = resize_w/im_c
+                b = hw_bb(b)
+                b[0] = int(np.round(b[0]*col_scale))
+                b[1] = int(np.round(b[1]*row_scale))
+                b[2] = int(np.round(b[2]*col_scale))
+                b[3] = int(np.round(b[3]*row_scale))
+                b = bb_hw(b)
+                margin = 12
+                if b[1] >= 0 and b[0] >= 0:
+                    try:
+                        if b[1] == 0 or b[0] == 0:
+                            im2 = im_resized[b[1]:b[1]+b[3],b[0]:b[0]+b[2]]
+                        else:    
+                            im2 = im_resized[b[1]-margin:b[1]+b[3]+margin,b[0]-margin:b[0]+b[2]+margin]
+                        plt.imsave('carlp.png',im2)
+                    except:
+                        im2 = im_resized[b[1]:b[1]+b[3],b[0]:b[0]+b[2]]
+                        plt.imsave('carlp.png',im2)
+                    # print(im2.shape)
+                    chars = get_lp_chars('carlp.png',size = 150,char_width = 9)['char_list']
+                    plot_in_row(chars,figsize = (8,8))
+                    all_found = len(chars) == len(num_plate)
+                    for char_id,char in enumerate(chars):
+                        # print(char.shape)
+                        img = get_test_input(imgs = [char],size = (40,40),show=True)
+                        # img_ = cv2.resize(char, (40,40))
+                        class_conf = ocr_net.predict(img)[0].max(0)[0]
+                        class_id = ocr_net.predict(img)[0].max(0)[1]
+                        # if all_found:
+                        #     char_name = num_plate[char_id]
+                        #     file_name = num_plate+'_'+char_name+'.png'
+                        #     name_count = 0
+                        #     file_path = os.path.join('/home/farhan/hamza/lpr_chars/',file_name)
+                        #     while os.path.exists(file_path):    
+                        #         file_name = num_plate+'_'+char_name+'_'+str(name_count)+'.png'
+                        #         file_path = os.path.join('/home/farhan/hamza/lpr_chars/',file_name)
+                        #         name_count+=1        
+                        #     plt.imsave(file_path,img_)
+                        pred_name = ocr_dp.class_names[class_id]
+                        # pred_name = chr(int(ocr_dp.class_names[class_id]))
+                        print(pred_name,class_conf)
+                        # print(ocr_dp.class_names[class_id], ' ', class_conf)    
+        del ocr_net
+        del ocr_dp
+
+        return ax
+
+    def show_nms(self,loader = None,num = 10,img_batch = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
+
+        if loader:
+            data_batch = next(iter(loader))
+            x,y = data_batch[0],data_batch[1]
+            batch = self.predict(x)
+            pred_clas,pred_bbox = batch
+            x = x.cpu()
+
+            for i in range(num):
+                print(i)
+                ima = dp.denorm_img(x[i])
+                num_plate = dp.class_names[y[i]]
+                box_coords = self.actn_to_bb(pred_bbox[i])
+                conf_scores = pred_clas[i].sigmoid().t().data
+                self.show_nms_(ima,y,num_plate,box_coords,conf_scores,score_thresh,nms_overlap)
+        else:
+            x = img_batch
+            batch = self.predict(x)
+            pred_clas,pred_bbox = batch
+            x = x.cpu()
+            for i in range(len(x)):
+                print(i)
+                ima = dp.denorm_img(x[i])
+                box_coords = self.actn_to_bb(pred_bbox[i])
+                conf_scores = pred_clas[i].sigmoid().t().data
+                self.show_nms_(ima,box_coords,conf_scores,score_thresh)
+
+    def show_nms_lpr(self,loader = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
+
+        ocr_net = data_processing.load_obj('/home/farhan/hamza/Object_Detection/best_lpr_chars_net.pkl')
+        ocr_dp = data_processing.load_obj('/home/farhan/hamza/lpr_chars/DP_lpr_chars.pkl')
+        for data_batch in loader:
+            x,y = data_batch[0],data_batch[1]
+            batch = self.predict(x)
+            pred_clas,pred_bbox = batch
+            x = x.cpu()
+
+            for i in range(len(x)):
+                print(i)
+                ima = dp.denorm_img(x[i])
+                num_plate = dp.class_names[y[i]]
+                box_coords = self.actn_to_bb(pred_bbox[i])
+                conf_scores = pred_clas[i].sigmoid().t().data
+                self.show_nms_lpr_(ima,y,num_plate,box_coords,conf_scores,score_thresh,nms_overlap,ocr_net,ocr_dp)
+
+    def show_nms_lpr_(self,ima,y,num_plate,box_coords,conf_scores,score_thresh = 0.25,
+                      nms_overlap = 0.1,ocr_net = None,ocr_dp = None):
+
+        out1,out2,cc = [],[],[]
+        for cl in range(0, len(conf_scores)-1):
+            c_mask = conf_scores[cl] > score_thresh
+            if c_mask.sum() == 0: continue
+            scores = conf_scores[cl][c_mask]
+            l_mask = c_mask.unsqueeze(1).expand_as(box_coords)
+            boxes = box_coords[l_mask].view(-1, 4)
+            ids, count = nms(boxes.data, scores, nms_overlap, 50)
+            ids = ids[:count]
+            out1.append(scores[ids])
+            out2.append(boxes.data[ids])
+            cc.append([cl]*count)
+        # return(out1,out2)    
+        if len(cc)> 0:    
+            cc = torch.from_numpy(np.concatenate(cc))
+            out1 = torch.cat(out1).cpu()
+            out2 = torch.cat(out2).cpu()
+            fig, ax = plt.subplots(figsize=(8,8))
+            ax = self.show_objects(ax, y, num_plate, ima, out2, cc, out1, score_thresh,ocr_net=ocr_net,ocr_dp=ocr_dp)
+            plt.show()
+        else:
+            plt.imshow(ima)
+            plt.show()
+
+    def show_nms_(self,ima,y,num_plate,box_coords,conf_scores,score_thresh = 0.25,nms_overlap = 0.1):
+
+        out1,out2,cc = [],[],[]
+        for cl in range(0, len(conf_scores)-1):
+            c_mask = conf_scores[cl] > score_thresh
+            if c_mask.sum() == 0: continue
+            scores = conf_scores[cl][c_mask]
+            l_mask = c_mask.unsqueeze(1).expand_as(box_coords)
+            boxes = box_coords[l_mask].view(-1, 4)
+            ids, count = nms(boxes.data, scores, nms_overlap, 50)
+            ids = ids[:count]
+            out1.append(scores[ids])
+            out2.append(boxes.data[ids])
+            cc.append([cl]*count)
+        # return(out1,out2)    
+        if len(cc)> 0:    
+            cc = torch.from_numpy(np.concatenate(cc))
+            out1 = torch.cat(out1).cpu()
+            out2 = torch.cat(out2).cpu()
+            fig, ax = plt.subplots(figsize=(8,8))
+            ax = self.show_objects(ax, y, num_plate, ima, out2, cc, out1, score_thresh)
+            plt.show()
+        else:
+            plt.imshow(ima)
+            plt.show()
 
 class ResNetUnetObjectDetection(TransferNetworkImg):
 
@@ -1577,7 +2130,8 @@ class ResNetUnetObjectDetection(TransferNetworkImg):
 
     def batch_loss(self,model,loader,crit):
         
-        dai_x,dai_y = next(iter(loader))
+        data_batch = next(iter(loader))
+        dai_x,dai_y = data_batch[0],data_batch[1]
         dai_x = dai_x.to(self.device)
         dai_y = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in dai_y]
         dai_batch = model(dai_x)
@@ -1586,7 +2140,7 @@ class ResNetUnetObjectDetection(TransferNetworkImg):
     def show_nms(self,loader = None,num = 10,img = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
 
         if loader:    
-            x,_ = next(iter(loader))
+            x = next(iter(loader))[0]
             batch = self.predict(x)
             pred_clas,pred_bbox = batch
             x = x.cpu()
@@ -1911,7 +2465,8 @@ class ResNetUnetObjectDetection2(TransferNetworkImg):
 
     def batch_loss(self,model,loader,crit):
         
-        dai_x,dai_y = next(iter(loader))
+        data_batch = next(iter(loader))
+        dai_x,dai_y = data_batch[0],data_batch[1]
         dai_x = dai_x.to(self.device)
         dai_y = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in dai_y]
         dai_batch = model(dai_x)
@@ -1920,7 +2475,7 @@ class ResNetUnetObjectDetection2(TransferNetworkImg):
     def show_nms(self,loader = None,num = 10,img = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
 
         if loader:    
-            x,_ = next(iter(loader))
+            x = next(iter(loader))[0]
             batch = self.predict(x)
             pred_clas,pred_bbox = batch
             x = x.cpu()
@@ -2296,7 +2851,8 @@ class UnetObjectDetection(Network):
 
     def batch_loss(self,model,loader,crit):
         
-        dai_x,dai_y = next(iter(loader))
+        data_batch = next(iter(loader))
+        dai_x,dai_y = data_batch[0],data_batch[1]
         dai_x = dai_x.to(self.device)
         dai_y = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in dai_y]
         dai_batch = model(dai_x)
@@ -2305,7 +2861,7 @@ class UnetObjectDetection(Network):
     def show_nms(self,loader = None,num = 10,img = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
 
         if loader:    
-            x,_ = next(iter(loader))
+            x = next(iter(loader))[0]
             batch = self.predict(x)
             pred_clas,pred_bbox = batch
             x = x.cpu()
@@ -2612,7 +3168,8 @@ class DarknetObjectDetection(Network):
 
     def batch_loss(self,model,loader,crit):
         
-        dai_x,dai_y = next(iter(loader))
+        data_batch = next(iter(loader))
+        dai_x,dai_y = data_batch[0],data_batch[1]
         dai_x = dai_x.to(self.device)
         dai_y = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in dai_y]
         dai_batch = model(dai_x)
@@ -2621,7 +3178,7 @@ class DarknetObjectDetection(Network):
     def show_nms(self,loader = None,num = 10,img = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
 
         if loader:    
-            x,_ = next(iter(loader))
+            x = next(iter(loader))[0]
             batch = self.predict(x)
             pred_clas,pred_bbox = batch
             x = x.cpu()

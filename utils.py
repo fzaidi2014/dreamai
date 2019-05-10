@@ -4,24 +4,48 @@ def plt_show(im):
     plt.imshow(im)
     plt.show()
 
-def plot_in_row(imgs,figsize = (20,20)):
+def load_and_show(path):
+    img = plt.imread(path)
+    plt_show(img)    
+
+def denorm_img_general(inp):
+
+    inp = inp.numpy().transpose((1, 2, 0))
+    mean = np.mean(inp)
+    std = np.std(inp)
+    inp = std * inp + mean
+    inp = np.clip(inp, 0, 1)
+    return inp 
+
+def cv2_rectangle(img,box,color = (0,0,255),thickness = 2):
+    x1,y1,x2,y2 = box
+    print(x1,y1,x2,y2)
+    return cv2.rectangle(img,(x1,y1),(x2,y2),color=color,thickness = thickness)
+
+def bgr2rgb(img):
+    return cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+
+def plot_in_row(imgs,figsize = (20,20),rows = None,columns = None):
     fig=plt.figure(figsize=figsize)
-    columns = len(imgs)
-    rows = 1
+    if not rows:
+        rows = 1
+    if not columns:    
+        columns = len(imgs)
     for i in range(1, columns*rows +1):
         img = imgs[i-1]
         fig.add_subplot(rows, columns, i)
         plt.imshow(img)
     plt.show()    
 
-def get_test_input(paths = [],imgs = [], size = (224,224)):
+def get_test_input(paths = [],imgs = [], size = (224,224),show = False):
     if len(paths) > 0:
         imgs = []
         for p in paths:
             imgs.append(cv2.imread(p))
     for i,img in enumerate(imgs):        
         img = cv2.resize(img, size)
-        plt_show(img)
+        if show:
+            plt_show(img)
         img_ =  img[:,:,::-1].transpose((2,0,1))  # BGR -> RGB | H X W C -> C X H X W
         img_ = (img_ - np.mean(img_))/np.std(img_)
         # print(img_.shape)

@@ -238,7 +238,7 @@ class DataProcessor:
         if setup_data:
             self.set_up_data()
                 
-    def set_up_data(self):
+    def set_up_data(self,split_size = 0.15):
 
         data_path,train_csv,val_csv,tr_name,val_name,test_name = (self.data_path,self.train_csv,self.val_csv,self.tr_name,self.val_name,self.test_name)
 
@@ -252,10 +252,10 @@ class DataProcessor:
 
         if os.path.exists(os.path.join(data_path,tr_name+'.csv')):
             train_csv = tr_name+'.csv'
-        if os.path.exists(os.path.join(data_path,val_name+'.csv')):
-            val_csv = val_name+'.csv'
-        if os.path.exists(os.path.join(data_path,test_name+'.csv')):
-            test_csv = test_name+'.csv'    
+        # if os.path.exists(os.path.join(data_path,val_name+'.csv')):
+        #     val_csv = val_name+'.csv'
+        # if os.path.exists(os.path.join(data_path,test_name+'.csv')):
+        #     test_csv = test_name+'.csv'    
 
         # paths to csv
 
@@ -352,8 +352,8 @@ class DataProcessor:
         # os.makedirs(self.models_path,exist_ok=True)
 
         if not val_csv:
-            train_df,val_df = split_df(train_df)
-        val_df,test_df = split_df(val_df)
+            train_df,val_df = split_df(train_df,split_size)
+        val_df,test_df = split_df(val_df,split_size)
         tr_images = [str(x) for x in list(train_df.iloc[:,0])]
         val_images = [str(x) for x in list(val_df.iloc[:,0])]
         test_images = [str(x) for x in list(test_df.iloc[:,0])]
@@ -450,7 +450,8 @@ class DataProcessor:
         if obj:
             resize_transform = transforms.Resize(s)
         else:
-            resize_transform = transforms.RandomResizedCrop(s[0])    
+            # resize_transform = transforms.RandomResizedCrop(s[0])
+            resize_transform = transforms.Resize(s)
         if not tfms:
             tfms = [
                 resize_transform,
@@ -521,11 +522,15 @@ class DataProcessor:
             plt.title(title)
         plt.pause(0.001)
 
-    def denorm_img(self,inp):
+    def denorm_img(self,inp,calculate = False):
 
         inp = inp.numpy().transpose((1, 2, 0))
-        mean = self.img_mean.numpy()
-        std = self.img_std.numpy()
+        if calculate:
+            mean = np.mean(inp)
+            std = np.std(inp)
+        else:    
+            mean = self.img_mean.numpy()
+            std = self.img_std.numpy()
         inp = std * inp + mean
         inp = np.clip(inp, 0, 1)
         return inp    
@@ -533,7 +538,8 @@ class DataProcessor:
     def show_data(self,folder_name = 'train', size = (64,64), bs = 5):
         
         self.get_data(size,bs)
-        inputs, classes = next(iter(self.dataloaders[folder_name]))
+        batch = next(iter(self.dataloaders[folder_name]))
+        inputs, classes = batch[0],batch[1]
         out = torchvision.utils.make_grid(inputs)
         if self.reg:
             print(classes)

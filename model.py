@@ -56,7 +56,9 @@ class Network(nn.Module):
         t1 = time.time()
         batches = 0
         running_loss = 0.
-        for inputs, labels in trainloader:
+        except_count = 0
+        for data_batch in trainloader:
+            inputs,labels = data_batch[0],data_batch[1]
             batches += 1
             #t1 = time.time()
             inputs = inputs.to(self.device)
@@ -71,7 +73,14 @@ class Network(nn.Module):
             optimizer.zero_grad()
             outputs = self.forward(inputs)
             # loss = criterion(outputs, labels)
-            loss = self.compute_loss(criterion,outputs,labels)[0]
+            try:
+                loss = self.compute_loss(criterion,outputs,labels)[0]
+            except:
+                except_count += 1
+                print(except_count)
+                t0 = time.time()
+                del data_batch
+                continue
             loss.backward()
             optimizer.step()
             loss = loss.item()
@@ -116,7 +125,8 @@ class Network(nn.Module):
         self.eval()
         rmse_ = 0.
         with torch.no_grad():
-            for inputs, labels in dataloader:
+            for data_batch in dataloader:
+                inputs, labels = data_batch[0],data_batch[1]
                 inputs = inputs.to(self.device)
                 try:
                     if self.obj:
@@ -128,7 +138,11 @@ class Network(nn.Module):
                     labels = labels.to(self.device)
                 outputs = self.forward(inputs)
                 # loss = self.criterion(outputs, labels)
-                loss = self.compute_loss(self.criterion,outputs,labels)[0]
+                try:
+                    loss = self.compute_loss(self.criterion,outputs,labels)[0]
+                except:
+                    print('nope') 
+                    continue   
                 running_loss += loss.item()
                 if classifier is not None and metric == 'accuracy':
                      classifier.update_accuracies(outputs,labels)
@@ -188,10 +202,11 @@ class Network(nn.Module):
         batch_num = 0
         losses = []
         log_lrs = []
+        skipped = 0
         for data in trn_loader:
             batch_num += 1
             #As before, get the loss for this mini-batch of inputs/outputs
-            inputs,labels = data
+            inputs,labels = data[0],data[1]
     #         inputs, labels = Variable(inputs), Variable(labels)
             
             # if self.multi_label:
@@ -213,7 +228,12 @@ class Network(nn.Module):
             optimizer.zero_grad()
             outputs = self.forward(inputs)
             # loss = criterion(outputs, labels)
-            loss = self.compute_loss(criterion,outputs,labels)[0]
+            try:
+                loss = self.compute_loss(criterion,outputs,labels)[0]
+            except:
+                skipped+=1
+                print(skipped)
+                continue
             #Compute the smoothed loss
             avg_loss = beta * avg_loss + (1-beta) *loss.item()
             smoothed_loss = avg_loss / (1 - beta**batch_num)
@@ -461,7 +481,8 @@ class EnsembleModel(Network):
         
         with torch.no_grad():
             
-            for inputs, labels in dataloader:
+            for data_batch in dataloader:
+                inputs, labels = data_batch[0],data_batch[1]
                 preds_list = []  
                 for model in self.models:
                     model[0].eval()
