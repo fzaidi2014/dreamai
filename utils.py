@@ -42,7 +42,7 @@ def get_test_input(paths = [],imgs = [], size = (224,224),show = False):
         imgs = []
         for p in paths:
             imgs.append(cv2.imread(p))
-    for i,img in enumerate(imgs):        
+    for i,img in enumerate(imgs):
         img = cv2.resize(img, size)
         if show:
             plt_show(img)

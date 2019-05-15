@@ -1,15 +1,5 @@
-import torch
-from torch import nn
-from torch import optim
-import torch.nn.functional as F
-from torchvision import datasets, transforms, models
-import time
-from collections import defaultdict
+from dai_imports import *
 from utils import *
-import matplotlib.pyplot as plt
-import numpy as np
-import math
-import copy
 
 class Classifier():
     def __init__(self,class_names):
@@ -27,12 +17,13 @@ class Classifier():
 
     def get_final_accuracies(self):
         accuracy = (100*np.sum(list(self.class_correct.values()))/np.sum(list(self.class_totals.values())))
-        class_accuracies = [(self.class_names[i],100.0*(self.class_correct[i]/self.class_totals[i])) 
+        try:
+            class_accuracies = [(self.class_names[i],100.0*(self.class_correct[i]/self.class_totals[i])) 
                                  for i in self.class_names.keys() if self.class_totals[i] > 0]
+        except:
+            class_accuracies = [(self.class_names[i],100.0*(self.class_correct[i]/self.class_totals[i])) 
+                                 for i in range(len(self.class_names)) if self.class_totals[i] > 0]
         return accuracy,class_accuracies
-
-    
-
 
 class Network(nn.Module):
     def __init__(self,device=None):
@@ -122,6 +113,9 @@ class Network(nn.Module):
         if self.model_type == 'classifier':# or self.num_classes is not None:
            classifier = Classifier(self.class_names)
 
+        y_pred = []
+        y_true = []
+
         self.eval()
         rmse_ = 0.
         with torch.no_grad():
@@ -145,22 +139,29 @@ class Network(nn.Module):
                     continue   
                 running_loss += loss.item()
                 if classifier is not None and metric == 'accuracy':
-                     classifier.update_accuracies(outputs,labels)
+                    classifier.update_accuracies(outputs,labels)
+                    y_true.extend(list(labels.squeeze(0).cpu().numpy()))
+                    _, preds = torch.max(torch.exp(outputs), 1)
+                    y_pred.extend(list(preds.cpu().numpy()))
                 elif metric == 'rmse':
                     rmse_ += rmse(outputs,labels).cpu().numpy()
             
         self.train()
 
         ret = {}
-        print('Running_loss: {:.3f}'.format(running_loss))
+        # print('Running_loss: {:.3f}'.format(running_loss))
         if metric == 'rmse':
             print('Total rmse: {:.3f}'.format(rmse_))
         ret['final_loss'] = running_loss/len(dataloader)
 
         if classifier is not None:
             ret['accuracy'],ret['class_accuracies'] = classifier.get_final_accuracies()
+            ret['report'] = classification_report(y_true,y_pred,target_names=self.class_names)
+            ret['confusion_matrix'] = confusion_matrix(y_true,y_pred)
+            ret['roc_auc_score'] = roc_auc_score(y_true,y_pred)
         elif metric == 'rmse':
             ret['final_rmse'] = rmse_/len(dataloader)
+
 
         return ret
    
@@ -273,7 +274,7 @@ class Network(nn.Module):
             
     def plot_find_lr(self):    
     
-        plt.ylabel("Validation Loss")
+        plt.ylabel("Loss")
         plt.xlabel("Learning Rate (log scale)")
         plt.plot(self.log_lrs,self.find_lr_losses)
         plt.show()
@@ -337,25 +338,31 @@ class Network(nn.Module):
                     print("Validation accuracy: {:.3f}".format(epoch_accuracy))
                     # print('\\'*36+'/'*36+'\n')
                     print('\\'*36+'\n')
-                    if self.best_accuracy == 0. or (epoch_accuracy > self.best_accuracy):
+                    if self.best_accuracy == 0. or (epoch_accuracy >= self.best_accuracy):
                         print('\n**********Updating best accuracy**********\n')
                         print('Previous best: {:.3f}'.format(self.best_accuracy))
                         print('New best: {:.3f}\n'.format(epoch_accuracy))
                         print('******************************************\n')
                         self.best_accuracy = epoch_accuracy
+                        optim_path = Path(self.best_model_file)
+                        optim_path = optim_path.stem + '_optim' + optim_path.suffix
                         torch.save(self.state_dict(),self.best_model_file)
+                        torch.save(self.optimizer.state_dict(),optim_path)
 
                 elif (self.model_type.lower()=='regressor' or self.model_type.lower()=='recommender' or self.model_type.lower()=='obj_detection'):
                     #  and (epoch % save_best_every==0):
                     print('\\'*36+'\n')
-                    if self.best_validation_loss == None or (epoch_validation_loss < self.best_validation_loss):
+                    if self.best_validation_loss == None or (epoch_validation_loss <= self.best_validation_loss):
                         print('\n**********Updating best validation loss**********\n')
                         if self.best_validation_loss is not None:
                             print('Previous best: {:.7f}'.format(self.best_validation_loss))
                         print('New best loss = {:.7f}\n'.format(epoch_validation_loss))
                         print('*'*49+'\n')
                         self.best_validation_loss = epoch_validation_loss
-                        torch.save(self.state_dict(),self.best_model_file)        
+                        optim_path = Path(self.best_model_file)
+                        optim_path = optim_path.stem + '_optim' + optim_path.suffix
+                        torch.save(self.state_dict(),self.best_model_file)
+                        torch.save(self.optimizer.state_dict(),optim_path)     
                     
                 self.train() # just in case we forgot to put the model back to train mode in validate
         torch.cuda.empty_cache()
@@ -388,14 +395,14 @@ class Network(nn.Module):
         from torch import optim
         if optimizer_name:
             if optimizer_name.lower() == 'adam':
-                print('Setting optim Adam')
+                print('Setting optimizer: Adam')
                 self.optimizer = optim.Adam(params,lr=lr)
                 self.optimizer_name = optimizer_name
             elif optimizer_name.lower() == 'sgd':
-                print('Setting optim SGD')
+                print('Setting optimizer: SGD')
                 self.optimizer = optim.SGD(params,lr=lr)
             elif optimizer_name.lower() == 'adadelta':
-                print('Setting optim Ada Delta')
+                print('Setting optimizer: AdaDelta')
                 self.optimizer = optim.Adadelta(params)       
             
     def set_model_params(self,

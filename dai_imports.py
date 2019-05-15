@@ -56,6 +56,7 @@ from collections import namedtuple
 from skimage.filters import threshold_local
 from skimage import segmentation
 from skimage import measure
+import skimage
 from imutils import perspective
 from imutils import contours
 import imutils
@@ -64,3 +65,6 @@ import data_processing
 import face_recognition
 import boxx
 from pprint import pprint
+from sklearn.metrics import classification_report
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import roc_auc_score

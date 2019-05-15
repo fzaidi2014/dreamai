@@ -24,6 +24,9 @@ class my_image_csv_dataset(Dataset):
         img_path = os.path.join(self.data_dir,self.data.iloc[index, 0])
         img = Image.open(img_path)
         img = img.convert('RGB')
+
+        img = torchvision.transforms.functional.to_grayscale(img,num_output_channels=3)
+
         y = self.data.iloc[index, 1]    
         if self.minorities and self.bal_tfms:
             if y in self.minorities:
@@ -123,25 +126,29 @@ def get_minorities(df,thresh=0.8):
     return minorities,diffs
 
 def csv_from_path(path, img_dest):
-    
-    labels_paths = listdir_fullpath(path)
+
+    path = Path(path)
+    img_dest = Path(img_dest)
+    labels_paths = list(path.iterdir())
     tr_images = []
     tr_labels = []
     for l in labels_paths:
-        if os.path.isdir(l):
-            for i in listdir_fullpath(l):
-                name = i.split('/')[-1]
-                label = l.split('/')[-1]
-                new_name = '/{}_'.format(label)+name
-                new_path = '/'.join(i.split('/')[:-2])+new_name
-                os.rename(i,new_path)
-                tr_images.append(new_name[1:])
-                tr_labels.append(label)
-            os.rmdir(l)    
+        if l.is_dir():
+            for i in list(l.iterdir()):
+                if i.suffix in IMG_EXTENSIONS:
+                    name = i.name
+                    label = l.name
+                    new_name = '{}_{}'.format(path.name,name)
+                    new_path = img_dest/new_name
+#                     print(new_path)
+                    os.rename(i,new_path)
+                    tr_images.append(new_name)
+                    tr_labels.append(label)    
+            # os.rmdir(l)
     tr_img_label = {'Img':tr_images, 'Label': tr_labels}
     csv = pd.DataFrame(tr_img_label,columns=['Img','Label'])
     csv = csv.sample(frac=1).reset_index(drop=True)
-    return csv    
+    return csv
 
 def add_extension(a,e):
     a = [x+e for x in a]
@@ -185,7 +192,8 @@ def rescale_bbox(bb,row_scale,col_scale):
     return bb
 
 def get_img_stats(dataset,sz):
-    size = len(dataset)//sz
+
+    size = int(len(dataset)*sz)
     i = 0
     imgs = []
     for img,_ in dataset:
@@ -261,7 +269,7 @@ class DataProcessor:
 
         if not train_csv:
             print('no')
-            train_csv,val_csv = self.data_from_paths_to_csv(data_path,tr_path,val_path)
+            train_csv,val_csv,test_csv = self.data_from_paths_to_csv(data_path,tr_path,val_path,test_path)
 
         train_csv_path = os.path.join(data_path,train_csv)
         train_df = pd.read_csv(train_csv_path)
@@ -275,7 +283,11 @@ class DataProcessor:
         if val_csv:
             val_csv_path = os.path.join(data_path,val_csv)
             val_df = pd.read_csv(val_csv_path)
-            val_targets =  list(map(str,list(val_df.iloc[:,1])))    
+            val_targets =  list(map(str,list(val_df.iloc[:,1])))
+        if test_csv:
+            test_csv_path = os.path.join(data_path,test_csv)
+            test_df = pd.read_csv(test_csv_path)
+            test_targets =  list(map(str,list(test_df.iloc[:,1])))        
         targets = list(map(str,list(train_df.iloc[:,1])))
         lengths = [len(t) for t in [s.split() for s in targets]]
         self.target_lengths = lengths
@@ -301,7 +313,7 @@ class DataProcessor:
             except:
                 pass
             dai_onehot,onehot_classes = one_hot(obj_split_targets,True)
-            train_df['one_hot'] = [torch.from_numpy(x).type(torch.FloatTensor) for x in dai_onehot]
+            # train_df['one_hot'] = [torch.from_numpy(x).type(torch.FloatTensor) for x in dai_onehot]
 
             # class indexes
 
@@ -346,6 +358,9 @@ class DataProcessor:
             if val_csv:
                 target_ids = [unique_targets.index(x) for x in val_targets]
                 val_df.iloc[:,1] = target_ids
+            if test_csv:
+                target_ids = [unique_targets.index(x) for x in test_targets]
+                test_df.iloc[:,1] = target_ids    
             self.data_dir,self.num_classes,self.class_names = data_path,len(unique_targets),unique_targets
 
         # self.models_path = os.path.join(self.data_dir, 'models')
@@ -353,7 +368,8 @@ class DataProcessor:
 
         if not val_csv:
             train_df,val_df = split_df(train_df,split_size)
-        val_df,test_df = split_df(val_df,split_size)
+        if not test_csv:    
+            val_df,test_df = split_df(val_df,split_size)
         tr_images = [str(x) for x in list(train_df.iloc[:,0])]
         val_images = [str(x) for x in list(val_df.iloc[:,0])]
         test_images = [str(x) for x in list(test_df.iloc[:,0])]
@@ -373,24 +389,31 @@ class DataProcessor:
         self.data_dfs = {self.tr_name:train_df, self.val_name:val_df, self.test_name:test_df}
         data_dict = {'data_dfs':self.data_dfs,'data_dir':self.data_dir,'num_classes':self.num_classes,'class_names':self.class_names,
                 'minorities':self.minorities,'class_diffs':self.class_diffs,'obj':self.obj,'multi_label':self.multi_label}
-        save_obj(data_dict,os.path.join(self.data_dir,'data_dict.pkl'))
+        # save_obj(data_dict,os.path.join(self.data_dir,'data_dict.pkl'))
         self.data_dict = data_dict
         return data_dict
 
-    def data_from_paths_to_csv(self,data_path,tr_path,val_path):
+    def data_from_paths_to_csv(self,data_path,tr_path,val_path = None,test_path = None):
             
         train_df = csv_from_path(tr_path,tr_path)
         train_df.to_csv(os.path.join(data_path,self.tr_name+'.csv'),index=False)
         ret = (self.tr_name+'.csv',None)
-        val_exists = os.path.exists(val_path)
-        if val_exists:
-            val_df = csv_from_path(val_path,tr_path)
-            val_df.to_csv(os.path.join(data_path,self.val_name+'.csv'),index=False)
-            ret = (self.tr_name+'.csv',self.val_name+'.csv')
+        if val_path is not None:
+            val_exists = os.path.exists(val_path)
+            if val_exists:
+                val_df = csv_from_path(val_path,tr_path)
+                val_df.to_csv(os.path.join(data_path,self.val_name+'.csv'),index=False)
+                ret = (self.tr_name+'.csv',self.val_name+'.csv')
+        if test_path is not None:
+            test_exists = os.path.exists(test_path)
+            if test_exists:
+                test_df = csv_from_path(test_path,tr_path)
+                test_df.to_csv(os.path.join(data_path,self.test_name+'.csv'),index=False)
+                ret = (self.tr_name+'.csv',self.val_name+'.csv',self.test_name+'.csv')        
         return ret
         
     def get_data(self, data_dict = None, s = (224,224), dataset = my_image_csv_dataset, bs = 32, balance = False, tfms = None,
-                                 bal_tfms = None, tta = False, num_workers = 4):
+                                 bal_tfms = None, tta = False, num_workers = 4, stats_percentage = 0.6):
         
         self.image_size = s
         if not data_dict:
@@ -489,7 +512,7 @@ class DataProcessor:
 
         temp_tfms = [resize_transform, transforms.ToTensor()]
         temp_dataset = dataset(os.path.join(data_dir,self.tr_name),data_dfs[self.tr_name],temp_tfms)
-        self.img_mean,self.img_std = get_img_stats(temp_dataset,60)
+        self.img_mean,self.img_std = get_img_stats(temp_dataset,stats_percentage)
         data_transforms[self.tr_name][-1].mean,data_transforms[self.tr_name][-1].std = self.img_mean,self.img_std
         data_transforms[self.val_name][-1].mean,data_transforms[self.val_name][-1].std = self.img_mean,self.img_std
         data_transforms[self.test_name][-1].mean,data_transforms[self.test_name][-1].std = self.img_mean,self.img_std

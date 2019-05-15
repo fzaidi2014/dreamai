@@ -8,8 +8,6 @@ from collections import defaultdict
 from utils import *
 from model import *
 
-
-
 class FC(Network):
     def __init__(self,
                  num_inputs=10,
@@ -52,9 +50,9 @@ class FC(Network):
         else:
             self.model.add_module('out',nn.Linear(num_inputs,num_outputs))
             
-        if model_type.lower() == 'classifier' and type(criterion).__name__.lower() == 'nllloss':
-            self.model.add_module('logsoftmax',nn.LogSoftmax(dim=1))   
-        elif (model_type.lower() == 'regressor' or model_type.lower() == 'recommender') and output_non_linearity is not None:
+        # if model_type.lower() == 'classifier' and type(criterion).__name__.lower() == 'nllloss':
+        #     self.model.add_module('logsoftmax',nn.LogSoftmax(dim=1))   
+        if (model_type.lower() == 'regressor' or model_type.lower() == 'recommender') and output_non_linearity is not None:
             print('Output non linearity = {}'.format(output_non_linearity))
             if output_non_linearity.lower() == 'sigmoid':
                 self.model.add_module(output_non_linearity,nn.Sigmoid())

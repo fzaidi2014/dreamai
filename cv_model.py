@@ -87,7 +87,7 @@ class TransferNetworkImg(Network):
                  model_type='cv_transfer',
                  lr=0.02,
                  one_cycle_factor = 0.5,
-                 criterion = nn.NLLLoss(),
+                 criterion = nn.CrossEntropyLoss(),
                  optimizer_name = 'Adam',
                  dropout_p=0.45,
                  pretrained=True,
@@ -155,7 +155,7 @@ class TransferNetworkImg(Network):
                          class_names,
                          num_classes):
         
-        print('Transfer: best accuracy = {:.3f}'.format(best_accuracy))
+        print('Transfer Learning: current best accuracy = {:.3f}'.format(best_accuracy))
         
         super(TransferNetworkImg, self).set_model_params(
                                               criterion = criterion,
@@ -222,9 +222,9 @@ class TransferNetworkImg(Network):
             for param in model.parameters():
                 param.requires_grad = False
             self.model = model    
-            print('Set_transfer_model: self.Model set to {}'.format(mname))
+            print('Setting transfer learning model: self.model set to {}'.format(mname))
         except:
-            print('Set_transfer_model: Model {} not supported'.format(mname))            
+            print('Setting transfer learning model: model name {} not supported'.format(mname))            
 
         # creating and adding extra layers to the model
         dream_model = None
@@ -329,12 +329,12 @@ class TransferNetworkImg(Network):
         self.head = head
         
         if type(head).__name__ == 'dict':
-            print('{}: setting head: inputs: {} hidden:{} outputs: {}'.format(model_name,
+            print('Model: {}, Setting head: inputs: {} hidden:{} outputs: {}'.format(model_name,
                                                                           in_features,
                                                                           head['layers'],
                                                                           head['num_outputs']))
         else:
-            print('{}: setting head: {}'.format(model_name,type(head).__name__))
+            print('Model: {}, Setting head: {}'.format(model_name,type(head).__name__))
 
     def _get_dropout(self):
         # if self.model_name.lower() == 'densenet':
@@ -1235,42 +1235,6 @@ class CustomSSDObjectDetection(TransferNetworkImg):
                 if c is not None: txt += ('bg' if c==len(self.class_names) else self.class_names[c])
                 if pr is not None: txt += f' {pr:.2f}'
                 draw_text(ax, b[:2], txt, color=self.colr_list[i % self.num_colr])
-                # if pr > 0.75:
-                    # print(im.shape)
-                    # plt.imsave('good_res.png',im)
-                    # data_processing.save_obj(b,'good_res.pth')
-                    # plt.imshow(im[b[1]:b[1]+b[3]][b[0]:b[0]+b[2]])
-                    # plt.show()
-        #         resize_w = 512
-        #         resize_h = 512    
-        #         im_resized = cv2.resize(im,(resize_w,resize_h))
-        #         im_r,im_c = im.shape[0],im.shape[1]
-        #         row_scale = resize_h/im_r
-        #         col_scale = resize_w/im_c
-        #         b[1] = int(np.round(b[1]*row_scale))
-        #         b[3] = int(np.round(b[3]*row_scale))
-        #         b[0] = int(np.round(b[0]*col_scale))
-        #         b[2] = int(np.round(b[2]*col_scale))
-        #         margin = 12
-        #         try:
-        #             im2 = im_resized[b[1]-margin:b[1]+b[3]+margin,b[0]-margin:b[0]+b[2]+margin]
-        #             plt.imsave('carlp.png',im2)
-        #         except:
-        #             im2 = im_resized[b[1]-margin:b[1]+b[3],b[0]-margin:b[0]+b[2]]
-        #             plt.imsave('carlp.png',im2)
-        #         print(im2.shape)
-        #         chars = get_lp_chars('carlp.png',size = 150,char_width = 7)['char_list']
-        #         plot_in_row(chars,figsize = (8,8))
-        #         for i in chars:
-        #             print(i.shape)
-        #             img = get_test_input(imgs = [i],size = (40,40))
-        #             class_conf = ocr_net.predict(img)[0].max(0)[0]
-        #             class_id = ocr_net.predict(img)[0].max(0)[1]
-        #             print(chr(int(ocr_dp.class_names[class_id])))
-        #             # print(ocr_dp.class_names[class_id], ' ', class_conf)
-        # del ocr_net
-        # del ocr_dp
-
         return ax
 
     def show_nms(self,loader = None,num = 10,img_batch = None,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
@@ -1288,7 +1252,7 @@ class CustomSSDObjectDetection(TransferNetworkImg):
             num = len(x)
 
         for i in range(num):
-            print(i)
+            # print(i)
             ima = x[i]
             if dp:
                 ima = dp.denorm_img(ima)
@@ -1323,7 +1287,47 @@ class CustomSSDObjectDetection(TransferNetworkImg):
             plt.show()
         else:
             plt.imshow(ima)
-            plt.show()               
+            plt.show()
+
+    def predict_objects(self,img_batch,score_thresh = 0.25,nms_overlap = 0.1,dp = None):
+
+        x = img_batch
+        batch = self.predict(x)
+        pred_clas,pred_bbox = batch
+        x = x.cpu()
+        for i,img in enumerate(x):
+            # print(i)
+            if dp:
+                img = dp.denorm_img(img)
+            else:
+                img = denorm_img_general(img)
+
+            box_coords = self.actn_to_bb(pred_bbox[i])
+            conf_scores = pred_clas[i].sigmoid().t().data
+
+            out1,out2,cc = [],[],[]
+            for cl in range(0, len(conf_scores)-1):
+                c_mask = conf_scores[cl] > score_thresh
+                if c_mask.sum() == 0: continue
+                scores = conf_scores[cl][c_mask]
+                l_mask = c_mask.unsqueeze(1).expand_as(box_coords)
+                boxes = box_coords[l_mask].view(-1, 4)
+                ids, count = nms(boxes.data, scores, nms_overlap, 50)
+                ids = ids[:count]
+                out1.append(scores[ids])
+                out2.append(boxes.data[ids])
+                cc.append([cl]*count)
+            # return(out1,out2)    
+            if len(cc)> 0:    
+                clas = np.concatenate(cc)
+                prs = torch.cat(out1).cpu().numpy()
+                bbox = ((torch.cat(out2).cpu()*self.image_size[0]).long()).numpy()
+                # bb = [bb_hw(o) for o in bbox.reshape(-1,4)]
+                bb = [[o[1],o[0],o[3],o[2]] for o in bbox.reshape(-1,4)]
+                return (bb, ['bg' if c == len(self.class_names) else self.class_names[c] for c in clas])
+            else:
+                return ([],[])
+
 
 class CustomSSDObjectDetection_LPR(TransferNetworkImg):
     def __init__(self,
@@ -1744,7 +1748,7 @@ class CustomSSDObjectDetection_LPR(TransferNetworkImg):
             x = x.cpu()
 
             for i in range(len(x)):
-                print(i)
+                # print(i)
                 ima = dp.denorm_img(x[i])
                 num_plate = dp.class_names[y[i]]
                 box_coords = self.actn_to_bb(pred_bbox[i])
@@ -1774,9 +1778,9 @@ class CustomSSDObjectDetection_LPR(TransferNetworkImg):
             fig, ax = plt.subplots(figsize=(8,8))
             ax = self.show_objects(ax, y, num_plate, ima, out2, cc, out1, score_thresh,ocr_net=ocr_net,ocr_dp=ocr_dp)
             plt.show()
-        else:
-            plt.imshow(ima)
-            plt.show()
+        # else:
+        #     plt.imshow(ima)
+        #     plt.show()
 
     def show_nms_(self,ima,y,num_plate,box_coords,conf_scores,score_thresh = 0.25,nms_overlap = 0.1):
 
