@@ -5,10 +5,8 @@ import torch.nn.functional as F
 from torchvision import datasets, transforms, models
 import time
 from collections import defaultdict
-from dreamai.utils import *
-from dreamai.model import *
-
-
+from utils import *
+from model import *
 
 class FC(Network):
     def __init__(self,
@@ -16,12 +14,13 @@ class FC(Network):
                  num_outputs=10,
                  layers=[],
                  lr=0.003,
+                 one_cycle_factor = 0.5,
                  class_names=None,
-                 optimizer_name='Adam',
+                 optimizer_name='AdaDelta',
                  dropout_p=0.2,
                  hidden_non_linearity='relu',
                  output_non_linearity=None,
-                 criterion_name='NLLLoss',
+                 criterion=nn.NLLLoss(),
                  model_name='FC',
                  model_type ='classifier',
                  best_accuracy=0.,
@@ -51,34 +50,32 @@ class FC(Network):
         else:
             self.model.add_module('out',nn.Linear(num_inputs,num_outputs))
             
-        
-        if model_type.lower() == 'classifier' and criterion_name.lower() == 'nllloss':
-            self.model.add_module('logsoftmax',nn.LogSoftmax(dim=1))   
-        elif (model_type.lower() == 'regressor' or model_type.lower() == 'recommender') and output_non_linearity is not None:
-            print('output non linearity = {}'.format(output_non_linearity))
+        # if model_type.lower() == 'classifier' and type(criterion).__name__.lower() == 'nllloss':
+        #     self.model.add_module('logsoftmax',nn.LogSoftmax(dim=1))   
+        if (model_type.lower() == 'regressor' or model_type.lower() == 'recommender') and output_non_linearity is not None:
+            print('Output non linearity = {}'.format(output_non_linearity))
             if output_non_linearity.lower() == 'sigmoid':
                 self.model.add_module(output_non_linearity,nn.Sigmoid())
                 self.output_non_linearity = output_non_linearity
 
-        self.to(self.device)
-        self.model.to(self.device)
+        # self.to(self.device)
+        self.model = self.model.to(self.device)
         
-
-        
-        
-        self.set_model_params(criterion_name,
-                              optimizer_name,
-                              lr,
-                              dropout_p,
-                              model_name,
-                              model_type,
-                              best_accuracy,
-                              best_validation_loss,
-                              best_model_file,
-                              chkpoint_file,
-                              num_inputs,
-                              num_outputs,
-                              layers,class_names)
+        self.set_model_params(criterion = criterion,
+                              optimizer_name = optimizer_name,
+                              lr = lr,
+                              one_cycle_factor = one_cycle_factor,
+                              dropout_p = dropout_p,
+                              model_name = model_name,
+                              model_type = model_type,
+                              best_accuracy = best_accuracy,
+                              best_validation_loss = best_validation_loss,
+                              best_model_file = best_model_file,
+                              chkpoint_file = chkpoint_file,
+                              num_inputs = num_inputs,
+                              num_outputs = num_outputs,
+                              layers = layers,
+                              class_names = class_names)
             
     def forward(self,x):
         return self.model(flatten_tensor(x))
@@ -95,9 +92,10 @@ class FC(Network):
                 layer.p=p
                 
     def set_model_params(self,
-                         criterion_name,
+                         criterion,
                          optimizer_name,
                          lr,
+                         one_cycle_factor,
                          dropout_p,
                          model_name,
                          model_type,
@@ -112,27 +110,35 @@ class FC(Network):
         
         
         super(FC, self).set_model_params(
-                              criterion_name,
-                              optimizer_name,
-                              lr,
-                              dropout_p,
-                              model_name,
-                              model_type,
-                              best_accuracy,
-                              best_validation_loss,
-                              best_model_file,
-                              chkpoint_file
+                              criterion = criterion,
+                              optimizer_name = optimizer_name,
+                              lr = lr,
+                              one_cycle_factor = one_cycle_factor,
+                              dropout_p = dropout_p,
+                              model_name = model_name,
+                              model_type = model_type,
+                              best_accuracy = best_accuracy,
+                              best_validation_loss = best_validation_loss,
+                              best_model_file = best_model_file,
+                              chkpoint_file = chkpoint_file,
+                              class_names = class_names,
+                              num_classes = num_outputs
                               )
         
         self.num_inputs = num_inputs
         self.num_outputs = num_outputs
         self.layer_dims = layers
 
-        if self.model_type == 'classifier':
-            if class_names is not None:
-                self.class_names = class_names
-            else:
-                self.class_names = {k:str(v) for k,v in enumerate(list(range(num_outputs)))}
+        if not self.class_names:
+            self.class_names = {k:str(v) for k,v in enumerate(list(range(self.num_outputs)))}
+        else:
+            self.num_classes = len(self.class_names)    
+
+        # if self.model_type == 'classifier':
+        #     if class_names is not None:
+        #         self.class_names = class_names
+        #     else:
+        #         self.class_names = {k:str(v) for k,v in enumerate(list(range(num_outputs)))}
         
     def get_model_params(self):
         params = super(FC, self).get_model_params()

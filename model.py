@@ -1,13 +1,5 @@
-import torch
-from torch import nn
-from torch import optim
-import torch.nn.functional as F
-from torchvision import datasets, transforms, models
-import time
-from collections import defaultdict
-from dreamai.utils import *
-import numpy as np
-
+from dai_imports import *
+from utils import *
 
 class Classifier():
     def __init__(self,class_names):
@@ -25,12 +17,13 @@ class Classifier():
 
     def get_final_accuracies(self):
         accuracy = (100*np.sum(list(self.class_correct.values()))/np.sum(list(self.class_totals.values())))
-        class_accuracies = [(self.class_names[i],100.0*(self.class_correct[i]/self.class_totals[i])) 
+        try:
+            class_accuracies = [(self.class_names[i],100.0*(self.class_correct[i]/self.class_totals[i])) 
                                  for i in self.class_names.keys() if self.class_totals[i] > 0]
+        except:
+            class_accuracies = [(self.class_names[i],100.0*(self.class_correct[i]/self.class_totals[i])) 
+                                 for i in range(len(self.class_names)) if self.class_totals[i] > 0]
         return accuracy,class_accuracies
-
-    
-
 
 class Network(nn.Module):
     def __init__(self,device=None):
@@ -38,24 +31,47 @@ class Network(nn.Module):
         if device is not None:
             self.device = device
         else:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             print(self.device)
 
     def forward(self,x):
         pass
-    
-    def train_(self,trainloader,criterion,optimizer,print_every):
+    def compute_loss(self,criterion,outputs,labels):
+        return [criterion(outputs,labels)]
+
+    def train_(self,e,trainloader,criterion,optimizer,print_every):
+
+        epoch,epochs = e
         self.train()
         t0 = time.time()
+        t1 = time.time()
         batches = 0
         running_loss = 0.
-        for inputs, labels in trainloader:
+        except_count = 0
+        for data_batch in trainloader:
+            inputs,labels = data_batch[0],data_batch[1]
             batches += 1
             #t1 = time.time()
-            inputs, labels = inputs.to(self.device), labels.to(self.device)
+            inputs = inputs.to(self.device)
+            try:
+                if self.obj:
+                    labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
+                    # labels = [torch.tensor(l).to(self.device) for l in labels]
+                else:    
+                    labels = labels.to(self.device)
+            except:
+                labels = labels.to(self.device)
             optimizer.zero_grad()
             outputs = self.forward(inputs)
-            loss = criterion(outputs, labels)
+            # loss = criterion(outputs, labels)
+            try:
+                loss = self.compute_loss(criterion,outputs,labels)[0]
+            except:
+                except_count += 1
+                print(except_count)
+                t0 = time.time()
+                del data_batch
+                continue
             loss.backward()
             optimizer.step()
             loss = loss.item()
@@ -63,11 +79,27 @@ class Network(nn.Module):
             running_loss += loss
             
             if batches % print_every == 0:
-                print(f"{time.asctime()}.."
-                        f"Time Elapsed = {time.time()-t0:.3f}.."
-                        f"Batch {batches+1}/{len(trainloader)}.. "
-                        f"Average Training loss: {running_loss/(batches):.3f}.. "
-                        f"Batch Training loss: {loss:.3f}.. "
+                elapsed = time.time()-t1
+                if elapsed > 60:
+                    elapsed /= 60.
+                    measure = 'min'
+                else:
+                    measure = 'sec'
+                batch_time = time.time()-t0
+                if batch_time > 60:
+                    batch_time /= 60.
+                    measure2 = 'min'
+                else:
+                    measure2 = 'sec'    
+                print('+----------------------------------------------------------------------+\n'
+                        f"{time.asctime().split()[-2]}\n"
+                        f"Time elapsed: {elapsed:.3f} {measure}\n"
+                        f"Epoch:{epoch+1}/{epochs}\n"
+                        f"Batch: {batches+1}/{len(trainloader)}\n"
+                        f"Batch training time: {batch_time:.3f} {measure2}\n"
+                        f"Batch training loss: {loss:.3f}\n"
+                        f"Average training loss: {running_loss/(batches):.3f}\n"
+                      '+----------------------------------------------------------------------+\n'     
                         )
                 t0 = time.time()
            
@@ -78,43 +110,64 @@ class Network(nn.Module):
         running_loss = 0.
         classifier = None
 
-        if self.model_type == 'classifier' or self.num_classes is not None:
+        if self.model_type == 'classifier':# or self.num_classes is not None:
            classifier = Classifier(self.class_names)
+
+        y_pred = []
+        y_true = []
 
         self.eval()
         rmse_ = 0.
         with torch.no_grad():
-            for inputs, labels in dataloader:
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
+            for data_batch in dataloader:
+                inputs, labels = data_batch[0],data_batch[1]
+                inputs = inputs.to(self.device)
+                try:
+                    if self.obj:
+                        labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
+                        # labels = [torch.tensor(l).to(self.device) for l in labels]
+                    else:    
+                        labels = labels.to(self.device)
+                except:
+                    labels = labels.to(self.device)
                 outputs = self.forward(inputs)
-                loss = self.criterion(outputs, labels)
+                # loss = self.criterion(outputs, labels)
+                try:
+                    loss = self.compute_loss(self.criterion,outputs,labels)[0]
+                except:
+                    print('nope') 
+                    continue   
                 running_loss += loss.item()
                 if classifier is not None and metric == 'accuracy':
-                     classifier.update_accuracies(outputs,labels)
+                    classifier.update_accuracies(outputs,labels)
+                    y_true.extend(list(labels.squeeze(0).cpu().numpy()))
+                    _, preds = torch.max(torch.exp(outputs), 1)
+                    y_pred.extend(list(preds.cpu().numpy()))
                 elif metric == 'rmse':
                     rmse_ += rmse(outputs,labels).cpu().numpy()
-                
-
-
             
         self.train()
 
         ret = {}
-        print('running_loss = {:.3f}'.format(running_loss))
-        print('total rmse = {:.3f}'.format(rmse_))
+        # print('Running_loss: {:.3f}'.format(running_loss))
+        if metric == 'rmse':
+            print('Total rmse: {:.3f}'.format(rmse_))
         ret['final_loss'] = running_loss/len(dataloader)
 
         if classifier is not None:
             ret['accuracy'],ret['class_accuracies'] = classifier.get_final_accuracies()
+            ret['report'] = classification_report(y_true,y_pred,target_names=self.class_names)
+            ret['confusion_matrix'] = confusion_matrix(y_true,y_pred)
+            ret['roc_auc_score'] = roc_auc_score(y_true,y_pred)
         elif metric == 'rmse':
             ret['final_rmse'] = rmse_/len(dataloader)
 
+
         return ret
-    
    
     def classify(self,inputs,topk=1):
         self.eval()
-        self.model.to(self.device)
+        self.model = self.model.to(self.device)
         with torch.no_grad():
             inputs = inputs.to(self.device)
             outputs = self.forward(inputs)
@@ -124,18 +177,136 @@ class Network(nn.Module):
 
     def predict(self,inputs):
         self.eval()
-        self.model.to(self.device)
+        self.model = self.model.to(self.device)
         with torch.no_grad():
             inputs = inputs.to(self.device)
             outputs = self.forward(inputs)
         return outputs
+
+    def find_lr(self,trn_loader,init_value=1e-8,final_value=10.,beta=0.98,plot=False):
+        
+        print('\nFinding the ideal learning rate.')
+        
+        # if self.obj:
+        #     size = (224,224)
+
+        model_state = copy.deepcopy(self.model.state_dict())
+        optim_state = copy.deepcopy(self.optimizer.state_dict())
+        optimizer = self.optimizer
+        criterion = self.criterion
+        num = len(trn_loader)-1
+        mult = (final_value / init_value) ** (1/num)
+        lr = init_value
+        optimizer.param_groups[0]['lr'] = lr
+        avg_loss = 0.
+        best_loss = 0.
+        batch_num = 0
+        losses = []
+        log_lrs = []
+        skipped = 0
+        for data in trn_loader:
+            batch_num += 1
+            #As before, get the loss for this mini-batch of inputs/outputs
+            inputs,labels = data[0],data[1]
+    #         inputs, labels = Variable(inputs), Variable(labels)
+            
+            # if self.multi_label:
+            #     labels2 = torch.zeros((len(labels), self.num_classes))
+            #     for i,l in enumerate(labels):
+            #         labels2[i] = torch.tensor(self.class_names[l])
+            #     labels = labels2 
     
+            inputs = inputs.to(self.device)
+            try:
+                if self.obj:
+                    labels = [torch.tensor(l).to(self.device) if type(l).__name__ == 'Tensor' else l.to(device) for l in labels]
+                    # labels = [torch.tensor(l).to(self.device) for l in labels]
+                else:
+                    labels = labels.to(self.device)
+            except:
+                labels = labels.to(self.device)
+            # labels = labels.to(self.device)
+            optimizer.zero_grad()
+            outputs = self.forward(inputs)
+            # loss = criterion(outputs, labels)
+            try:
+                loss = self.compute_loss(criterion,outputs,labels)[0]
+            except:
+                skipped+=1
+                print(skipped)
+                continue
+            #Compute the smoothed loss
+            avg_loss = beta * avg_loss + (1-beta) *loss.item()
+            smoothed_loss = avg_loss / (1 - beta**batch_num)
+            #Stop if the loss is exploding
+            if batch_num > 1 and smoothed_loss > 4 * best_loss:
+                self.log_lrs, self.find_lr_losses = log_lrs,losses
+                self.model.load_state_dict(model_state)
+                self.optimizer.load_state_dict(optim_state)
+                if plot:
+                    self.plot_find_lr()
+                temp_lr = self.log_lrs[np.argmin(self.find_lr_losses)-(len(self.log_lrs)//8)]
+                self.lr = (10**temp_lr)
+                print('Found it: {}\n'.format(self.lr))
+                return self.lr
+            #Record the best loss
+            if smoothed_loss < best_loss or batch_num==1:
+                best_loss = smoothed_loss
+            #Store the values
+            losses.append(smoothed_loss)
+            log_lrs.append(math.log10(lr))
+            #Do the SGD step
+            loss.backward()
+            optimizer.step()
+            #Update the lr for the next step
+            lr *= mult
+            optimizer.param_groups[0]['lr'] = lr
+        
+        self.log_lrs, self.find_lr_losses = log_lrs,losses
+        self.model.load_state_dict(model_state)
+        self.optimizer.load_state_dict(optim_state)
+        if plot:
+            self.plot_find_lr()
+        temp_lr = self.log_lrs[np.argmin(self.find_lr_losses)-(len(self.log_lrs)//10)]
+        self.lr = (10**temp_lr)
+        print('Found it: {}\n'.format(self.lr))
+        return self.lr
+            
+    def plot_find_lr(self):    
+    
+        plt.ylabel("Loss")
+        plt.xlabel("Learning Rate (log scale)")
+        plt.plot(self.log_lrs,self.find_lr_losses)
+        plt.show()
+#         plt.xscale('log')    
+
+    def setup_one_cycle(self,e):
+        one_cycle_step = int(e*self.one_cycle_factor)
+        lrs1 = np.linspace(self.lr/10, self.lr, one_cycle_step)
+        lrs2 = np.linspace(self.lr, self.lr/10, e-one_cycle_step)
+        m1 = np.linspace(0.95, 0.85, one_cycle_step)
+        m2 = np.linspace(0.85, 0.95, e-one_cycle_step)
+        return one_cycle_step,lrs1,lrs2,m1,m2
+
     def fit(self,trainloader,validloader,epochs=2,print_every=10,validate_every=1,save_best_every=1):
-           
+
+        if self.one_cycle_factor:
+            one_cycle_step,lrs1,lrs2,m1,m2 = self.setup_one_cycle(epochs)   
         for epoch in range(epochs):
-            self.model.to(self.device)
-            print('epoch {:3d}/{}'.format(epoch+1,epochs))
-            epoch_train_loss =  self.train_(trainloader,self.criterion,
+            if self.one_cycle_factor:
+                if epoch < one_cycle_step:
+                    for pg in self.optimizer.param_groups:
+                        pg['lr'] = lrs1[epoch]
+                        if 'momentum' in pg.keys():
+                            pg['momentum'] = m1[epoch]
+                else:
+                    for pg in self.optimizer.param_groups:
+                        pg['lr'] = lrs2[epoch-one_cycle_step]
+                        if 'momentum' in pg.keys():
+                            pg['momentum'] = m2[epoch-one_cycle_step]
+            self.model = self.model.to(self.device)
+            print('Epoch:{:3d}/{}\n'.format(epoch+1,epochs))
+            epoch_train_loss =  self.train_((epoch,epochs),trainloader,self.criterion,
                                             self.optimizer,print_every)
                     
             if  validate_every and (epoch % validate_every == 0):
@@ -144,80 +315,116 @@ class Network(nn.Module):
                 epoch_validation_loss = eval_dict['final_loss']
                 
                 time_elapsed = time.time() - t2
-                print(f"{time.asctime()}--Validation time {time_elapsed:.3f} seconds.."
-                      f"Epoch {epoch+1}/{epochs}.. "
-                      f"Epoch Training loss: {epoch_train_loss:.3f}.. "
-                      f"Epoch validation loss: {epoch_validation_loss:.3f}.. ")
+                if time_elapsed > 60:
+                    time_elapsed /= 60.
+                    measure = 'min'
+                else:
+                    measure = 'sec'    
+                print('\n'+'/'*36+'\n'
+                        f"{time.asctime().split()[-2]}\n"
+                        f"Epoch {epoch+1}/{epochs}\n"    
+                        f"Validation time: {time_elapsed:.3f} {measure}\n"    
+                        f"Epoch training loss: {epoch_train_loss:.3f}\n"
+                        f"Epoch validation loss: {epoch_validation_loss:.3f}"
+                    )
 
-                if self.model_type == 'classifier' or self.num_classes is not None:
+                # print(f"{time.asctime()}--Validation time {time_elapsed:.3f} seconds.."
+                #       f"Epoch {epoch+1}/{epochs}.. "
+                #       f"Epoch training loss: {epoch_train_loss:.3f}.. "
+                #       f"Epoch validation loss: {epoch_validation_loss:.3f}.. ")
+
+                if self.model_type == 'classifier':# or self.num_classes is not None:
                     epoch_accuracy = eval_dict['accuracy']
-                    print("validation accuracy: {:.3f}".format(epoch_accuracy))
-                               
-                    if self.best_accuracy == 0. or (epoch_accuracy > self.best_accuracy):
-                        print('updating best accuracy: previous best = {:.3f} new best = {:.3f}'.format(self.best_accuracy,
-                                                                                     epoch_accuracy))
+                    print("Validation accuracy: {:.3f}".format(epoch_accuracy))
+                    # print('\\'*36+'/'*36+'\n')
+                    print('\\'*36+'\n')
+                    if self.best_accuracy == 0. or (epoch_accuracy >= self.best_accuracy):
+                        print('\n**********Updating best accuracy**********\n')
+                        print('Previous best: {:.3f}'.format(self.best_accuracy))
+                        print('New best: {:.3f}\n'.format(epoch_accuracy))
+                        print('******************************************\n')
                         self.best_accuracy = epoch_accuracy
+                        optim_path = Path(self.best_model_file)
+                        optim_path = optim_path.stem + '_optim' + optim_path.suffix
                         torch.save(self.state_dict(),self.best_model_file)
+                        torch.save(self.optimizer.state_dict(),optim_path)
 
-                elif (self.model_type.lower() == 'regressor' or self.model_type.lower() == 'recommender') and (epoch % save_best_every == 0):
-                    if self.best_validation_loss == None or (epoch_validation_loss < self.best_validation_loss):
+                elif (self.model_type.lower()=='regressor' or self.model_type.lower()=='recommender' or self.model_type.lower()=='obj_detection'):
+                    #  and (epoch % save_best_every==0):
+                    print('\\'*36+'\n')
+                    if self.best_validation_loss == None or (epoch_validation_loss <= self.best_validation_loss):
+                        print('\n**********Updating best validation loss**********\n')
                         if self.best_validation_loss is not None:
-                            print('updating best validation loss: previous best = {:.7f}'.format(self.best_validation_loss))
-                        print('New best loss = {:.7f}'.format(epoch_validation_loss))
-
+                            print('Previous best: {:.7f}'.format(self.best_validation_loss))
+                        print('New best loss = {:.7f}\n'.format(epoch_validation_loss))
+                        print('*'*49+'\n')
                         self.best_validation_loss = epoch_validation_loss
+                        optim_path = Path(self.best_model_file)
+                        optim_path = optim_path.stem + '_optim' + optim_path.suffix
                         torch.save(self.state_dict(),self.best_model_file)
+                        torch.save(self.optimizer.state_dict(),optim_path)     
                     
                 self.train() # just in case we forgot to put the model back to train mode in validate
-                
-        print('loading best model')
+        torch.cuda.empty_cache()
+        print('\nLoading best model\n')
         self.load_state_dict(torch.load(self.best_model_file))
                 
-     
-                
-    def set_criterion(self,criterion_name):
-            if criterion_name.lower() == 'nllloss':
-                self.criterion_name = 'NLLLoss'
-                self.criterion = nn.NLLLoss()
-            elif criterion_name.lower() == 'crossentropyloss':
-                self.criterion_name = 'CrossEntropyLoss'
-                self.criterion = nn.CrossEntropyLoss()
-            elif criterion_name.lower() == 'mseloss':
-                self.criterion_name = 'MSELoss'
-                self.criterion = nn.MSELoss()
+    def set_criterion(self, criterion):
 
+        if criterion:
+            self.criterion = criterion
+
+        # if criterion_obj is None:        
+        #     if criterion_name.lower() == 'nllloss':
+        #         self.criterion_name = 'NLLLoss'
+        #         self.criterion = nn.NLLLoss()
+        #     elif criterion_name.lower() == 'crossentropyloss':
+        #         self.criterion_name = 'CrossEntropyLoss'
+        #         self.criterion = nn.CrossEntropyLoss()
+        #     elif criterion_name.lower() == 'mseloss':
+        #         self.criterion_name = 'MSELoss'
+        #         self.criterion = nn.MSELoss()
+        # else:
+        #     print(str(criterion_)[:-2])
+        #     print(self.criterion_name)
+        #     self.criterion_name = criterion_obj.__class__.__name__
+        #     self.criterion = criterion_obj
+        
 
     def set_optimizer(self,params,optimizer_name='adam',lr=0.003):
         from torch import optim
-
-        if optimizer_name.lower() == 'adam':
-            print('setting optim Adam')
-            self.optimizer = optim.Adam(params,lr=lr)
-            self.optimizer_name = optimizer_name
-        elif optimizer_name.lower() == 'sgd':
-            print('setting optim SGD')
-            self.optimizer = optim.SGD(params,lr=lr)
-        elif optimizer_name.lower() == 'adadelta':
-            print('setting optim Ada Delta')
-            self.optimizer = optim.Adadelta(params)
+        if optimizer_name:
+            if optimizer_name.lower() == 'adam':
+                print('Setting optimizer: Adam')
+                self.optimizer = optim.Adam(params,lr=lr)
+                self.optimizer_name = optimizer_name
+            elif optimizer_name.lower() == 'sgd':
+                print('Setting optimizer: SGD')
+                self.optimizer = optim.SGD(params,lr=lr)
+            elif optimizer_name.lower() == 'adadelta':
+                print('Setting optimizer: AdaDelta')
+                self.optimizer = optim.Adadelta(params)       
             
     def set_model_params(self,
-                         criterion_name,
+                         criterion,
                          optimizer_name,
                          lr,
+                         one_cycle_factor,
                          dropout_p,
                          model_name,
                          model_type,
                          best_accuracy,
                          best_validation_loss,
                          best_model_file,
-                         chkpoint_file):
+                         chkpoint_file,
+                         class_names,
+                         num_classes):
         
-        self.criterion_name = criterion_name
-        self.set_criterion(criterion_name)
+        self.set_criterion(criterion)
         self.optimizer_name = optimizer_name
         self.set_optimizer(self.parameters(),optimizer_name,lr=lr)
         self.lr = lr
+        self.one_cycle_factor = one_cycle_factor
         self.dropout_p = dropout_p
         self.model_name =  model_name
         self.model_type = model_type
@@ -226,6 +433,8 @@ class Network(nn.Module):
         #print('set_model_params: best accuracy = {:.3f}'.format(self.best_accuracy))  
         self.best_model_file = best_model_file
         self.chkpoint_file = chkpoint_file
+        self.class_names = class_names
+        self.num_classes = num_classes
     
     def get_model_params(self):
         params = {}
@@ -233,7 +442,7 @@ class Network(nn.Module):
         params['model_type'] = self.model_type
         params['model_name'] = self.model_name
         params['optimizer_name'] = self.optimizer_name
-        params['criterion_name'] = self.criterion_name
+        params['criterion'] = self.criterion
         params['lr'] = self.lr
         params['dropout_p'] = self.dropout_p
         params['best_accuracy'] = self.best_accuracy
@@ -279,11 +488,12 @@ class EnsembleModel(Network):
         
         with torch.no_grad():
             
-            for inputs, labels in dataloader:
+            for data_batch in dataloader:
+                inputs, labels = data_batch[0],data_batch[1]
                 preds_list = []  
                 for model in self.models:
                     model[0].eval()
-                    model[0].to(model[0].device)
+                    model[0] = model[0].to(model[0].device)
                     inputs, labels = inputs.to(model[0].device), labels.to(model[0].device)
                     outputs = model[0].forward(inputs)
                     if metric == 'accuracy':
@@ -313,7 +523,7 @@ class EnsembleModel(Network):
         ps_list = []  
         for model in self.models:
             model[0].eval()
-            model[0].to(model[0].device)
+            model[0] = model[0].to(model[0].device)
             with torch.no_grad():
                 inputs = inputs.to(model[0].device)
                 outputs = model[0].forward(inputs)

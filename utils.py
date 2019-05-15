@@ -1,10 +1,70 @@
-from collections import defaultdict
-import math
-import torch
-from torch.utils.data.sampler import SubsetRandomSampler,SequentialSampler,BatchSampler
-import numpy as np
+from dai_imports import*
+
+def plt_show(im):
+    plt.imshow(im)
+    plt.show()
+
+def load_and_show(path):
+    img = plt.imread(path)
+    plt_show(img)    
+
+def denorm_img_general(inp):
+
+    inp = inp.numpy().transpose((1, 2, 0))
+    mean = np.mean(inp)
+    std = np.std(inp)
+    inp = std * inp + mean
+    inp = np.clip(inp, 0, 1)
+    return inp 
+
+def cv2_rectangle(img,box,color = (0,0,255),thickness = 2):
+    x1,y1,x2,y2 = box
+    print(x1,y1,x2,y2)
+    return cv2.rectangle(img,(x1,y1),(x2,y2),color=color,thickness = thickness)
+
+def bgr2rgb(img):
+    return cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+
+def plot_in_row(imgs,figsize = (20,20),rows = None,columns = None):
+    fig=plt.figure(figsize=figsize)
+    if not rows:
+        rows = 1
+    if not columns:    
+        columns = len(imgs)
+    for i in range(1, columns*rows +1):
+        img = imgs[i-1]
+        fig.add_subplot(rows, columns, i)
+        plt.imshow(img)
+    plt.show()    
+
+def get_test_input(paths = [],imgs = [], size = (224,224),show = False):
+    if len(paths) > 0:
+        imgs = []
+        for p in paths:
+            imgs.append(cv2.imread(p))
+    for i,img in enumerate(imgs):
+        img = cv2.resize(img, size)
+        if show:
+            plt_show(img)
+        img_ =  img[:,:,::-1].transpose((2,0,1))  # BGR -> RGB | H X W C -> C X H X W
+        img_ = (img_ - np.mean(img_))/np.std(img_)
+        # print(img_.shape)
+        # img_ = img_[np.newaxis,:,:,:]/255.0       #Add a channel at 0 (for batch) | Normalise
+        # img_ = torch.from_numpy(img_).float()     #Convert to float
+        imgs[i] = img_
+    return torch.from_numpy(np.asarray(imgs)).float()
 
 
+class Printer(nn.Module):
+    def forward(self,x):
+        print(x.size())
+        return x
+
+class Flatten(nn.Module):
+    def forward(self, input):
+        return input.view(input.size(0), -1)
+
+DAI_AvgPool = nn.AdaptiveAvgPool2d(1)
 
 def update_classwise_accuracies(preds,labels,class_correct,class_totals):
     correct = np.squeeze(preds.eq(labels.data.view_as(preds)))
@@ -110,7 +170,48 @@ def normalize_minmax(values):
 def denormalize_minmax(values,orig_values):
     min_ = min(orig_values)
     v = (values * (max(orig_values) - min_) + min_)
-    return np.array([np.round(e) for e in v]);
+    return np.array([np.round(e) for e in v])
 
 def rmse(inputs,targets):
     return torch.sqrt(torch.mean((inputs - targets) ** 2))
+
+def compute_center_loss(features, centers, targets):
+    features = features.view(features.size(0), -1)
+    target_centers = centers[targets]
+    criterion = torch.nn.MSELoss()
+    center_loss = criterion(features, target_centers)
+    return center_loss
+
+
+def get_center_delta(features, centers, targets, alpha, device):
+    # implementation equation (4) in the center-loss paper
+    features = features.view(features.size(0), -1)
+    targets, indices = torch.sort(targets)
+    target_centers = centers[targets]
+    features = features[indices]
+
+    delta_centers = target_centers - features
+    uni_targets, indices = torch.unique(
+            targets.cpu(), sorted=True, return_inverse=True)
+
+    uni_targets = uni_targets.to(device)
+    indices = indices.to(device)
+
+    delta_centers = torch.zeros(
+        uni_targets.size(0), delta_centers.size(1)
+    ).to(device).index_add_(0, indices, delta_centers)
+
+    targets_repeat_num = uni_targets.size()[0]
+    uni_targets_repeat_num = targets.size()[0]
+    targets_repeat = targets.repeat(
+            targets_repeat_num).view(targets_repeat_num, -1)
+    uni_targets_repeat = uni_targets.unsqueeze(1).repeat(
+            1, uni_targets_repeat_num)
+    same_class_feature_count = torch.sum(
+            targets_repeat == uni_targets_repeat, dim=1).float().unsqueeze(1)
+
+    delta_centers = delta_centers / (same_class_feature_count + 1.0) * alpha
+    result = torch.zeros_like(centers)
+    result[uni_targets, :] = delta_centers
+    return result
+
