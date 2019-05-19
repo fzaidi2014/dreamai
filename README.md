@@ -1,2 +1,2 @@
 # dreamai
-DreamAI library master repository.
+DreamAI library Master repository.
