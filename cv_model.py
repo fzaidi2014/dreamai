@@ -142,7 +142,9 @@ class TransferNetworkImg(Network):
                          device = None):
         
         
+
         if model_name.lower() == 'densenet':
+            
             if hasattr(self.model,'classifier'):
                 in_features =  self.model.classifier.in_features
             else:
